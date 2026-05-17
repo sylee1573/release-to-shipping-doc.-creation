@@ -1,0 +1,99 @@
+export interface FieldValue {
+  value: string | number | null
+  confidence: number
+  raw_text?: string | null
+}
+
+export interface ParsedData {
+  fields: Record<string, FieldValue>
+  parse_notes?: string | null
+}
+
+export interface Order {
+  id: string
+  tenant_id: string
+  customer_name: string | null
+  file_name: string | null
+  parse_status: 'pending' | 'processing' | 'done' | 'failed'
+  parsed_data: ParsedData | null
+  confirmed_data: Record<string, string | number> | null
+  confirmed_at: string | null
+  created_at: string
+}
+
+export interface ProductionRequest {
+  id: string
+  tenant_id: string
+  order_id: string
+  request_number: string | null
+  customer_name: string | null
+  production_start_date: string | null
+  production_end_date: string | null
+  quantity: number | null
+  adjusted_quantity: number | null
+  adjusted_delivery_date: string | null
+  change_history: ChangeHistory[]
+  excel_path: string | null
+  status: 'draft' | 'confirmed' | 'in_production' | 'done'
+  created_at: string
+  updated_at: string
+}
+
+export interface ChangeHistory {
+  changed_at: string
+  changed_by: string
+  field: string
+  before: string | number
+  after: string | number
+  reason: string
+}
+
+export interface ShipmentDoc {
+  id: string
+  tenant_id: string
+  production_request_id: string
+  doc_type: 'invoice' | 'packing_list'
+  doc_number: string | null
+  excel_path: string | null
+  issued_at: string | null
+  created_at: string
+}
+
+export interface User {
+  id: string
+  tenant_id: string
+  email: string
+  full_name: string | null
+  role: string
+  is_active: boolean
+}
+
+export interface UsageReport {
+  tenant_id: string
+  tenant_name: string
+  billing_month: string
+  unit_count: number
+  amount: number | null
+  status: string
+}
+
+export interface Tenant {
+  id: string
+  name: string
+  business_number: string | null
+  contact_email: string
+  contact_phone: string | null
+  is_active: boolean
+  suspended_at: string | null
+  plan_type: string
+  created_at: string
+}
+
+export interface ParsingTemplate {
+  id: string
+  tenant_id: string
+  customer_name: string
+  template_description: string | null
+  is_active: boolean
+  created_at: string
+}

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(Start-Sleep -Seconds 4)",
+      "Bash(Read-Content \"C:\\\\Users\\\\tina\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D----------\\\\733662e9-9157-4d10-a2f8-2d6131c553a3\\\\tasks\\\\b7xpahhm4.output\" -ErrorAction SilentlyContinue)",
+      "Skill(browse)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)"
+    ]
+  }
+}
