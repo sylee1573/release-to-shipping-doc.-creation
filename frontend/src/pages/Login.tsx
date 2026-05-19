@@ -13,7 +13,7 @@ export default function Login() {
   const mutation = useMutation({
     mutationFn: async () => {
       const token = await authApi.login({ email, password })
-      const user = await authApi.me()
+      const user = await authApi.me(token.access_token)
       setAuth(token.access_token, user)
     },
     onSuccess: () => navigate('/'),

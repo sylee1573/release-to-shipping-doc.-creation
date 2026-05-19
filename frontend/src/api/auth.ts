@@ -13,5 +13,5 @@ export interface TokenResponse {
 
 export const authApi = {
   login: (body: LoginRequest) => api.post<TokenResponse>('/api/v1/auth/login', body),
-  me: () => api.get<User>('/api/v1/auth/me'),
+  me: (token?: string) => api.get<User>('/api/v1/auth/me', token),
 }

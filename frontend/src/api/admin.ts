@@ -29,5 +29,5 @@ export const adminApi = {
   }) => api.post<ParsingTemplate>('/api/v1/admin/templates', body),
 
   deleteTemplate: (templateId: string) =>
-    api.patch<{ message: string }>(`/api/v1/admin/templates/${templateId}`, {}),
+    api.delete<{ message: string }>(`/api/v1/admin/templates/${templateId}`),
 }

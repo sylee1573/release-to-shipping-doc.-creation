@@ -1,5 +1,9 @@
+from pathlib import Path
 from typing import Literal
 from pydantic_settings import BaseSettings
+
+# 실행 디렉토리에 관계없이 프로젝트 루트의 .env를 항상 탐색
+_env_path = Path(__file__).parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -49,7 +53,7 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     FRONTEND_URL: str = "http://localhost:5173"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": str(_env_path), "env_file_encoding": "utf-8"}
 
 
 settings = Settings()
