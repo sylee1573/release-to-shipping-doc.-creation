@@ -1,5 +1,4 @@
-import os
-
+from config import settings
 from services.providers.base_provider import BaseAIProvider
 
 
@@ -8,7 +7,7 @@ def get_ai_provider() -> BaseAIProvider:
     AI_PROVIDER 환경변수에 따라 프로바이더 자동 선택.
     전환 시 .env의 AI_PROVIDER 값만 수정하면 됨.
     """
-    provider = os.getenv("AI_PROVIDER", "anthropic").lower()
+    provider = settings.AI_PROVIDER.lower()
 
     if provider == "anthropic":
         from services.providers.anthropic_provider import AnthropicProvider

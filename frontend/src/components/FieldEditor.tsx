@@ -23,7 +23,13 @@ export default function FieldEditor({ fieldName, field, editedValue, onChange }:
   const confidence = field.confidence
   const style = getConfidenceStyle(confidence)
   const isLow = confidence < 0.7
-  const displayValue = editedValue ?? String(field.value ?? '')
+  const raw = field.value
+  const normalizedValue = Array.isArray(raw)
+    ? raw.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ')
+    : typeof raw === 'object' && raw !== null
+    ? JSON.stringify(raw)
+    : String(raw ?? '')
+  const displayValue = editedValue ?? normalizedValue
   const isEdited = editedValue !== undefined
 
   return (

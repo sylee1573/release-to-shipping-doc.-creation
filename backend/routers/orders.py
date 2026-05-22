@@ -92,6 +92,7 @@ async def upload_order(
     template_hint = template.template_description or "" if template else ""
 
     # 2단계: AI 파싱 (텍스트만 전달 — 토큰 최소화)
+    import traceback, logging
     try:
         parsed = await ai_provider.parse_document(raw_text, template_hint)
         order.parsed_data = parsed
@@ -101,7 +102,8 @@ async def upload_order(
         customer_code = parsed.get("fields", {}).get("customer_code", {}).get("value")
         if customer_code:
             order.customer_name = str(customer_code)
-    except Exception:
+    except Exception as e:
+        logging.error(f"[parse_error] {type(e).__name__}: {e}\n{traceback.format_exc()}")
         order.parse_status = "failed"
 
     await db.commit()

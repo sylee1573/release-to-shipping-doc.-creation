@@ -151,27 +151,35 @@ async def update_production_request(
     if not pr or pr.tenant_id != user.tenant_id:  # tenant_id 필터
         raise HTTPException(status_code=404, detail="생산의뢰서를 찾을 수 없습니다")
 
-    history_entry = {
-        "changed_at": datetime.now(timezone.utc).isoformat(),
-        "changed_by": str(user.id),
-        "reason": body.reason,
-    }
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_entries = []
 
     if body.adjusted_quantity is not None:
-        history_entry["field"] = "quantity"
-        history_entry["before"] = pr.quantity
-        history_entry["after"] = body.adjusted_quantity
+        new_entries.append({
+            "changed_at": now_iso,
+            "changed_by": str(user.id),
+            "field": "quantity",
+            "before": pr.adjusted_quantity if pr.adjusted_quantity is not None else pr.quantity,
+            "after": body.adjusted_quantity,
+            "reason": body.reason,
+        })
         pr.adjusted_quantity = body.adjusted_quantity
 
     if body.adjusted_delivery_date is not None:
-        history_entry["field"] = "delivery_date"
-        history_entry["before"] = str(pr.production_end_date)
-        history_entry["after"] = str(body.adjusted_delivery_date)
+        prev_delivery = str(pr.adjusted_delivery_date or pr.production_end_date)
+        new_entries.append({
+            "changed_at": now_iso,
+            "changed_by": str(user.id),
+            "field": "delivery_date",
+            "before": prev_delivery,
+            "after": str(body.adjusted_delivery_date),
+            "reason": body.reason,
+        })
         pr.adjusted_delivery_date = body.adjusted_delivery_date
         pr.production_end_date = body.adjusted_delivery_date - timedelta(days=_SHIPPING_PREP_DAYS)
         pr.production_start_date = pr.production_end_date - timedelta(days=_LEAD_TIME_DAYS)
 
-    pr.change_history = (pr.change_history or []) + [history_entry]
+    pr.change_history = (pr.change_history or []) + new_entries
     await db.commit()
     await db.refresh(pr)
 

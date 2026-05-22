@@ -1,8 +1,8 @@
 import json
-import os
 
 import anthropic
 
+from config import settings
 from services.providers.base_provider import BaseAIProvider
 
 _PARSE_SYSTEM = """당신은 자동차 부품사 발주서 전문 파서입니다.
@@ -33,9 +33,9 @@ confidence 기준:
 class AnthropicProvider(BaseAIProvider):
 
     def __init__(self):
-        self.client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        self.model_heavy = os.getenv("ANTHROPIC_MODEL_HEAVY", "claude-sonnet-4-5")
-        self.model_light = os.getenv("ANTHROPIC_MODEL_LIGHT", "claude-haiku-4-5-20251001")
+        self.client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        self.model_heavy = settings.ANTHROPIC_MODEL_HEAVY
+        self.model_light = settings.ANTHROPIC_MODEL_LIGHT
 
     async def parse_document(self, text: str, template_hint: str = "") -> dict:
         system = _PARSE_SYSTEM
