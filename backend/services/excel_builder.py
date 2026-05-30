@@ -66,15 +66,21 @@ def _address_lines(ship_to: str, delivery_location: str, max_lines: int = 8) -> 
 
 
 def _calc_amounts(data: dict):
-    """(qty_num, up_num, extended) 반환. 변환 실패 시 원값 그대로."""
+    """(qty_num, up_num, extended) 반환. 단가 없으면 up_num·extended는 빈 문자열."""
     qty = data.get("quantity", 0)
-    unit_price = data.get("unit_price") or 0
+    unit_price = data.get("unit_price")
     try:
         qty_num = int(qty)
-        up_num = float(unit_price)
-        extended = round(qty_num * up_num, 2)
     except (ValueError, TypeError):
-        return qty, unit_price, ""
+        qty_num = qty
+
+    if unit_price is None:
+        return qty_num, "", ""
+    try:
+        up_num = float(unit_price)
+        extended = round(qty_num * up_num, 2) if isinstance(qty_num, int) else ""
+    except (ValueError, TypeError):
+        return qty_num, "", ""
     return qty_num, up_num, extended
 
 
