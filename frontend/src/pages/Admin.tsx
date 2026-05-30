@@ -207,7 +207,7 @@ function TemplatesTab() {
 // ── 고객사 프로필 탭 ────────────────────────────────────────
 function CustomerProfilesTab() {
   const qc = useQueryClient()
-  const BLANK: { customer_name: string; date_type: 'arrival' | 'completion'; ship_to_name: string; ship_to_address: string; final_destination: string; shipping_prep_days: number; production_lead_days: number } = { customer_name: '', date_type: 'arrival', ship_to_name: '', ship_to_address: '', final_destination: '', shipping_prep_days: 2, production_lead_days: 7 }
+  const BLANK: { customer_name: string; date_type: 'arrival' | 'completion'; ship_to_name: string; ship_to_address: string; final_destination: string; sea_transit_days: number; shipping_prep_days: number; production_lead_days: number } = { customer_name: '', date_type: 'arrival', ship_to_name: '', ship_to_address: '', final_destination: '', sea_transit_days: 21, shipping_prep_days: 2, production_lead_days: 7 }
   const [form, setForm] = useState(BLANK)
   const [editing, setEditing] = useState<CustomerProfile | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -231,7 +231,7 @@ function CustomerProfilesTab() {
 
   const startEdit = (cp: CustomerProfile) => {
     setEditing(cp)
-    setForm({ customer_name: cp.customer_name, date_type: cp.date_type, ship_to_name: cp.ship_to_name ?? '', ship_to_address: cp.ship_to_address ?? '', final_destination: cp.final_destination ?? '', shipping_prep_days: cp.shipping_prep_days, production_lead_days: cp.production_lead_days })
+    setForm({ customer_name: cp.customer_name, date_type: cp.date_type, ship_to_name: cp.ship_to_name ?? '', ship_to_address: cp.ship_to_address ?? '', final_destination: cp.final_destination ?? '', sea_transit_days: cp.sea_transit_days, shipping_prep_days: cp.shipping_prep_days, production_lead_days: cp.production_lead_days })
   }
 
   const FormPanel = ({ isEdit }: { isEdit: boolean }) => (
@@ -263,10 +263,16 @@ function CustomerProfilesTab() {
           <label className="block text-xs font-medium text-gray-600 mb-1">최종 목적지 (Final Destination)</label>
           <input className="input" value={form.final_destination} onChange={(e) => setForm({ ...form, final_destination: e.target.value })} />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">출하 준비일수 <span className="text-gray-400">(도착일 기준시)</span></label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">해상 운송일수</label>
+            <input className="input" type="number" min={1} value={form.sea_transit_days} onChange={(e) => setForm({ ...form, sea_transit_days: Number(e.target.value) })} />
+            <p className="text-xs text-gray-400 mt-0.5">도착일→선적일</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">출하 준비일수</label>
             <input className="input" type="number" min={0} value={form.shipping_prep_days} onChange={(e) => setForm({ ...form, shipping_prep_days: Number(e.target.value) })} />
+            <p className="text-xs text-gray-400 mt-0.5">선적일→생산완료</p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">생산 리드타임 (일)</label>
@@ -318,7 +324,7 @@ function CustomerProfilesTab() {
                     </span>
                   </div>
                   <div className="text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-0.5">
-                    <span>출하 준비 {cp.shipping_prep_days}일 · 리드타임 {cp.production_lead_days}일</span>
+                    <span>해상 {cp.sea_transit_days}일 · 출하준비 {cp.shipping_prep_days}일 · 리드타임 {cp.production_lead_days}일</span>
                     {cp.ship_to_name && <span>수신처: {cp.ship_to_name}</span>}
                     {cp.final_destination && <span>목적지: {cp.final_destination}</span>}
                   </div>

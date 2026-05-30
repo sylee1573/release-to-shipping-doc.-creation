@@ -23,29 +23,20 @@ const FIELD_ORDER = [
 // 내부에서 자동 관리하므로 화면에 표시하지 않는 필드
 const HIDDEN_FIELDS = new Set(['ran_number'])
 
-// ── 생산의뢰서 생성 모달 ────────────────────────────────────
+// ── 4주 생산계획 생성 모달 ──────────────────────────────────
 function CreatePRModal({
   orderId,
-  defaultQty,
-  defaultDate,
+  deliverySchedule,
   onClose,
 }: {
   orderId: string
-  defaultQty: string
-  defaultDate: string
+  deliverySchedule: Array<{ date: string; quantity: number }>
   onClose: () => void
 }) {
   const navigate = useNavigate()
-  const [qty, setQty] = useState(defaultQty)
-  const [deliveryDate, setDeliveryDate] = useState(defaultDate)
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      productionApi.create({
-        order_id: orderId,
-        quantity: qty ? Number(qty) : undefined,
-        delivery_date: deliveryDate || undefined,
-      }),
+    mutationFn: () => productionApi.generateWeekly({ order_id: orderId }),
     onSuccess: () => navigate('/production'),
   })
 
@@ -53,48 +44,35 @@ function CreatePRModal({
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
         <div className="px-6 pt-6 pb-2">
-          <h2 className="text-lg font-bold text-gray-900">생산의뢰서 생성</h2>
+          <h2 className="text-lg font-bold text-gray-900">4주 생산계획 생성</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            발주서 확인 데이터 기준으로 생산의뢰서를 생성합니다
+            SA 납품 스케줄 기준으로 4주 롤링 생산의뢰서를 생성합니다
           </p>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
-          {/* 납기일 유형 안내 */}
+        <div className="px-6 py-4 space-y-3">
           <div className="bg-blue-50 rounded-lg px-4 py-3 text-sm text-blue-700">
-            납기 역산은 관리 &gt; 고객사 프로필에 설정된 기준(도착일/완료일)과 리드타임을 자동 적용합니다
+            고객사 프로필의 해상운송일수·출하준비일수·리드타임을 자동 적용해 선적일·생산완료일을 역산합니다
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              생산 수량 <span className="text-red-500">*</span>
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                className="input flex-1"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                min={1}
-              />
-              <span className="text-sm text-gray-500">EA</span>
+          {deliverySchedule.length > 0 ? (
+            <div>
+              <p className="text-xs font-medium text-gray-600 mb-2">감지된 납품 스케줄</p>
+              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                {deliverySchedule.slice(0, 6).map((s, i) => (
+                  <div key={i} className="flex justify-between px-3 py-2 text-sm">
+                    <span className="text-gray-700">{s.date}</span>
+                    <span className="font-medium text-gray-900">{s.quantity.toLocaleString()} EA</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">이 중 미래 납품일 기준 최대 4주분을 생성합니다</p>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              SA 납기일 <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="date"
-              className="input"
-              value={deliveryDate}
-              onChange={(e) => setDeliveryDate(e.target.value)}
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              고객사 프로필 설정에 따라 생산 완료일·시작일이 자동 계산됩니다
-            </p>
-          </div>
+          ) : (
+            <div className="bg-yellow-50 rounded-lg px-4 py-3 text-sm text-yellow-700">
+              납품 스케줄이 감지되지 않았습니다. 생성 시 확인 데이터의 납기일·수량으로 1주분만 생성됩니다.
+            </div>
+          )}
         </div>
 
         {createMutation.isError && (
@@ -104,22 +82,17 @@ function CreatePRModal({
         )}
 
         <div className="px-6 py-4 flex justify-between items-center border-t border-gray-100">
-          <button
-            onClick={() => navigate('/production')}
-            className="text-sm text-gray-500 hover:text-gray-700"
-          >
+          <button onClick={() => navigate('/production')} className="text-sm text-gray-500 hover:text-gray-700">
             나중에 생성
           </button>
           <div className="flex gap-2">
-            <button onClick={onClose} className="btn-secondary text-sm">
-              취소
-            </button>
+            <button onClick={onClose} className="btn-secondary text-sm">취소</button>
             <button
               onClick={() => createMutation.mutate()}
-              disabled={!qty || !deliveryDate || createMutation.isPending}
+              disabled={createMutation.isPending}
               className="btn-primary text-sm"
             >
-              {createMutation.isPending ? '생성 중...' : '생산의뢰서 생성'}
+              {createMutation.isPending ? '생성 중...' : '4주 생산계획 생성'}
             </button>
           </div>
         </div>
@@ -216,10 +189,9 @@ export default function ParseReview() {
     ...Object.entries(fields).filter(([k]) => !FIELD_ORDER.includes(k) && !HIDDEN_FIELDS.has(k)),
   ]
 
-  // 생산의뢰서 생성 모달에 넘길 기본값
-  const confirmedData = order.confirmed_data ?? {}
-  const defaultQty    = String(editedValues['quantity'] ?? confirmedData['quantity'] ?? fields['quantity']?.value ?? '')
-  const defaultDate   = String(editedValues['delivery_date'] ?? confirmedData['delivery_date'] ?? fields['delivery_date']?.value ?? '')
+  // 4주 생산계획 모달: AI 파싱된 delivery_schedule 전달
+  const deliverySchedule: Array<{ date: string; quantity: number }> =
+    (order.parsed_data as any)?.delivery_schedule ?? []
 
   return (
     <div className="max-w-2xl">
@@ -311,8 +283,7 @@ export default function ParseReview() {
       {showPRModal && (
         <CreatePRModal
           orderId={id!}
-          defaultQty={defaultQty}
-          defaultDate={defaultDate}
+          deliverySchedule={deliverySchedule}
           onClose={() => setShowPRModal(false)}
         />
       )}

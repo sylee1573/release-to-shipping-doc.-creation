@@ -15,8 +15,11 @@ class ProductionRequest(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False)
     request_number: Mapped[str | None] = mapped_column(String(100))  # PR-{YYYYMM}-{0001}
-    production_start_date: Mapped[date | None] = mapped_column(DATE)  # 납기 역산
+    sailing_date: Mapped[date | None] = mapped_column(DATE)          # 슬롯1 선적일 (역산)
+    production_start_date: Mapped[date | None] = mapped_column(DATE)
     production_end_date: Mapped[date | None] = mapped_column(DATE)
+    # 4주 롤링 스케줄 — 슬롯별 {slot, week_start, quantity, sailing_date, is_holiday, holiday_reason}
+    weekly_schedule: Mapped[list | None] = mapped_column(JSONB, default=list)
     quantity: Mapped[int | None] = mapped_column(Integer)
     adjusted_quantity: Mapped[int | None] = mapped_column(Integer)
     adjusted_delivery_date: Mapped[date | None] = mapped_column(DATE)

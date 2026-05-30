@@ -26,7 +26,8 @@ class CustomerProfile(Base):
     final_destination: Mapped[str | None] = mapped_column(String(500))
 
     # 납기 역산 설정 (일수)
-    shipping_prep_days: Mapped[int] = mapped_column(Integer, default=2)   # 출하 준비일수
+    sea_transit_days: Mapped[int] = mapped_column(Integer, default=21)    # 해상 운송일수 (도착일→선적일)
+    shipping_prep_days: Mapped[int] = mapped_column(Integer, default=2)   # 출하 준비일수 (선적일→생산완료일)
     production_lead_days: Mapped[int] = mapped_column(Integer, default=7) # 생산 리드타임
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -55,7 +55,10 @@
       "PowerShell(Start-Process \"D:\\\\���ּ� �ڵ�����\\\\test_output\\\\PR-202605-0002.xlsx\")",
       "PowerShell(Start-Process \"D:\\\\���ּ� �ڵ�����\\\\test_output\\\\INV-202605-0001.xlsx\")",
       "PowerShell(Start-Process \"D:\\\\���ּ� �ڵ�����\\\\test_output\\\\PKL-202605-0001.xlsx\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(git reset *)",
+      "Bash(/c/Users/tina/.claude/skills/gstack/browse/dist/browse goto *)",
+      "Bash(/c/Users/tina/.claude/skills/gstack/browse/dist/browse screenshot *)"
     ]
   }
 }

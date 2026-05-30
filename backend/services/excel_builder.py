@@ -1,5 +1,6 @@
 import io
 import logging
+import math
 from datetime import date
 from pathlib import Path
 
@@ -9,7 +10,6 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 logger = logging.getLogger(__name__)
 
-# KCR26-06.xlsx — IN(Invoice) + PA(Packing List) 시트가 실제 양식 레이아웃 보유
 TEMPLATE_PATH = Path(__file__).parent.parent.parent / "ship doc  ex" / "KCR26-06.xlsx"
 
 SENDER_NAME = "KYUNG CHANG PRECISION IND. CO., LTD."
@@ -18,21 +18,16 @@ SENDER_TEL = "82-53-589-0133"
 SENDER_FAX = "82-53-582-1786"
 
 
-# ─── Style helpers (생산의뢰서 코드 생성용) ───────────────────────────
+# ─── Style helpers (생산의뢰서용) ─────────────────────────────
 
 def _side(style="thin"):
     return Side(style=style)
 
-
 def _border(left="thin", right="thin", top="thin", bottom="thin"):
-    return Border(
-        left=_side(left), right=_side(right), top=_side(top), bottom=_side(bottom)
-    )
-
+    return Border(left=_side(left), right=_side(right), top=_side(top), bottom=_side(bottom))
 
 def _thin():
     return _border()
-
 
 def _set(ws, row, col, value, bold=False, size=10, align="left", valign="center",
          border=None, fill_color=None, wrap=False):
@@ -45,13 +40,12 @@ def _set(ws, row, col, value, bold=False, size=10, align="left", valign="center"
         cell.fill = PatternFill("solid", fgColor=fill_color)
     return cell
 
-
 def _col_widths(ws, widths: dict):
     for col_letter, w in widths.items():
         ws.column_dimensions[col_letter].width = w
 
 
-# ─── 공통 헬퍼 ────────────────────────────────────────────────────────
+# ─── 공통 헬퍼 ────────────────────────────────────────────────
 
 def _address_lines(ship_to: str, delivery_location: str, max_lines: int = 8) -> list[str]:
     lines = []
@@ -65,10 +59,10 @@ def _address_lines(ship_to: str, delivery_location: str, max_lines: int = 8) -> 
     return lines[:max_lines]
 
 
-def _calc_amounts(data: dict):
-    """(qty_num, up_num, extended) 반환. 단가 없으면 up_num·extended는 빈 문자열."""
-    qty = data.get("quantity", 0)
-    unit_price = data.get("unit_price")
+def _calc_item_amounts(item: dict):
+    """(qty_num, up_num, extended) 반환. 단가 없으면 빈 문자열."""
+    qty = item.get("quantity", 0)
+    unit_price = item.get("unit_price")
     try:
         qty_num = int(qty)
     except (ValueError, TypeError):
@@ -85,11 +79,9 @@ def _calc_amounts(data: dict):
 
 
 def _keep_only(wb, sheet_name: str):
-    """지정 시트 하나만 남기고 나머지 삭제."""
     for sname in list(wb.sheetnames):
         if sname != sheet_name:
             wb.remove(wb[sname])
-
 
 def _to_bytes(wb) -> bytes:
     buf = io.BytesIO()
@@ -97,170 +89,236 @@ def _to_bytes(wb) -> bytes:
     return buf.getvalue()
 
 
-# ─── 생산의뢰서 (내부 문서 — 코드 기반 유지) ────────────────────────
+def _write_header(ws, sheet_type: str, header: dict):
+    """IN(Invoice) 또는 PA(Packing List) 시트 공통 헤더 채우기."""
+    ws["H2"] = header.get("doc_number", "")
+    ws["K2"] = date.today().strftime("%Y-%m-%d")
+
+    addr = _address_lines(
+        header.get("ship_to_name", header.get("customer_name", "")),
+        header.get("delivery_location", ""),
+    )
+    for i, row_num in enumerate(range(4, 12)):
+        ws.cell(row=row_num, column=1).value = addr[i] if i < len(addr) else ""
+
+    # 선적일자 (Row 22, "6. Sailing Date" 아래)
+    ws["D22"] = header.get("sailing_date", "")
+
+    if sheet_type == "invoice":
+        ws["I16"] = f"  SA# : {header.get('po_number', '')}"
+        ws["I18"] = f"  Tax ID : {header.get('tax_id', '')}" if header.get("tax_id") else ""
+        ws["D18"] = header.get("final_destination", "")
+    else:  # packing
+        ws["H16"] = f"  SA# : {header.get('po_number', '')}"
+        ws["H18"] = f"  Tax ID : {header.get('tax_id', '')}" if header.get("tax_id") else ""
+        ws["D18"] = header.get("final_destination", "")
+
+
+# ─── 생산의뢰서 (내부 문서 — 코드 기반) ─────────────────────
 
 def build_production_request(data: dict) -> bytes:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "생산의뢰서"
 
-    ws.merge_cells("A1:F1")
-    _set(ws, 1, 1, "생산의뢰서", bold=True, size=16, align="center")
+    # 제목
+    ws.merge_cells("A1:H1")
+    _set(ws, 1, 1, "생산의뢰서 (4주 롤링 계획)", bold=True, size=16, align="center")
     ws.row_dimensions[1].height = 36
-
-    ws.merge_cells("A2:F2")
+    ws.merge_cells("A2:H2")
     _set(ws, 2, 1, SENDER_NAME, size=10, align="center")
     ws.row_dimensions[2].height = 18
     ws.row_dimensions[3].height = 6
 
-    rows = [
+    # 기본 정보
+    info_rows = [
         ("의뢰서 번호",      data.get("request_number", "")),
         ("발주처 (고객사)",   data.get("customer_name", "")),
         ("품번 (P/N)",       data.get("part_number", "")),
         ("품목 설명",        data.get("description", "")),
-        ("생산 수량",        f"{data.get('quantity', '')} EA"),
-        ("생산 시작일",      str(data.get("production_start_date", ""))),
-        ("생산 완료일",      str(data.get("production_end_date", ""))),
-        ("고객 납기일",      str(data.get("delivery_date", ""))),
-        ("납품처",           data.get("delivery_location", "")),
         ("발주번호 (P.O.#)", data.get("po_number", "")),
-        ("콜번호 (RAN#)",    data.get("ran_number", "")),
+        ("내부 RAN#",        str(data.get("ran_number", ""))),
     ]
-
-    for i, (label, value) in enumerate(rows, start=4):
+    for i, (label, value) in enumerate(info_rows, start=4):
         ws.row_dimensions[i].height = 20
         _set(ws, i, 1, label, bold=True, size=10, border=_thin(), fill_color="E8F4FD")
-        ws.merge_cells(f"B{i}:F{i}")
+        ws.merge_cells(f"B{i}:H{i}")
         _set(ws, i, 2, value, size=10, border=_thin())
 
+    # 4주 롤링 스케줄 테이블
+    sched_start = 4 + len(info_rows) + 1
+    ws.row_dimensions[sched_start - 1].height = 6
+
+    # 헤더
+    hdr = sched_start
+    ws.row_dimensions[hdr].height = 22
+    hdr_fill = "4472C4"
+    for col, label in enumerate(["슬롯", "주간 시작일", "납품일", "생산수량(EA)", "선적 예정일", "생산완료일", "비고"], start=1):
+        cell = ws.cell(row=hdr, column=col, value=label)
+        cell.font = Font(bold=True, size=9, name="Arial", color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = _thin()
+        cell.fill = PatternFill("solid", fgColor=hdr_fill)
+
+    weekly = data.get("weekly_schedule") or []
+    for si, slot in enumerate(weekly):
+        r = hdr + 1 + si
+        ws.row_dimensions[r].height = 18
+        is_hol = slot.get("is_holiday", False)
+        row_fill = "FFF2CC" if is_hol else None
+        vals = [
+            f"{slot.get('slot', si+1)}주차",
+            slot.get("week_start", ""),
+            slot.get("delivery_date", ""),
+            "" if is_hol else slot.get("quantity", ""),
+            "" if is_hol else slot.get("sailing_date", ""),
+            "" if is_hol else slot.get("production_end", ""),
+            slot.get("holiday_reason", "") if is_hol else "",
+        ]
+        for col, v in enumerate(vals, start=1):
+            _set(ws, r, col, v, size=9, border=_thin(),
+                 fill_color=row_fill, align="center" if col in (1, 4) else "left")
+
+    # 변경이력
     history = data.get("change_history", [])
     if history:
-        r = len(rows) + 5
-        ws.merge_cells(f"A{r}:F{r}")
-        _set(ws, r, 1, "변경 이력", bold=True, size=10, border=_thin(), fill_color="FFF2CC")
-        r += 1
-        for h in history:
-            ws.merge_cells(f"A{r}:F{r}")
+        base = hdr + 1 + max(len(weekly), 4) + 2
+        ws.merge_cells(f"A{base}:H{base}")
+        _set(ws, base, 1, "변경 이력", bold=True, size=10, border=_thin(), fill_color="FFF2CC")
+        for j, h in enumerate(history, start=1):
+            r2 = base + j
+            ws.merge_cells(f"A{r2}:H{r2}")
             txt = (
                 f"[{h.get('changed_at','')[:10]}] {h.get('field','')}:"
                 f" {h.get('before','')} → {h.get('after','')}  ({h.get('reason','')})"
             )
-            _set(ws, r, 1, txt, size=9, border=_thin())
-            r += 1
+            _set(ws, r2, 1, txt, size=9, border=_thin())
+            ws.row_dimensions[r2].height = 16
 
-    _col_widths(ws, {"A": 22, "B": 18, "C": 15, "D": 15, "E": 15, "F": 15})
+    _col_widths(ws, {"A": 10, "B": 14, "C": 14, "D": 14, "E": 14, "F": 14, "G": 14, "H": 20})
     return _to_bytes(wb)
 
 
-# ─── Commercial Invoice (KCR26-06 IN 시트 기반) ───────────────────────
+# ─── Commercial Invoice (다품번 지원) ────────────────────────
 
-def build_invoice(data: dict) -> bytes:
+def build_invoice(header: dict, items: list[dict] | None = None) -> bytes:
+    """
+    header: doc_number, ship_to_name, delivery_location, final_destination,
+            sailing_date, po_number, [tax_id, customer_name]
+    items:  list of {part_number, description, quantity, unit_price, po_number, ran_number}
+    """
+    # 단일 호출 호환 (header에 items 필드 포함된 경우)
+    if items is None:
+        items = header.get("_items") or [header]
+
     if not TEMPLATE_PATH.exists():
-        raise FileNotFoundError(
-            f"Invoice 양식 파일을 찾을 수 없습니다: {TEMPLATE_PATH}\n"
-            "프로젝트 루트의 'ship doc  ex/KCR26-06.xlsx' 파일이 필요합니다."
-        )
+        raise FileNotFoundError(f"Invoice 양식 파일 없음: {TEMPLATE_PATH}")
 
     wb = load_workbook(TEMPLATE_PATH)
     ws = wb["IN"]
 
-    # 서류 번호 / 날짜
-    ws["H2"] = data.get("doc_number", "")
-    ws["K2"] = date.today().strftime("%Y-%m-%d")
+    _write_header(ws, "invoice", header)
 
-    # 납품처 (수신처) — 행 4~11
-    addr = _address_lines(
-        data.get("ship_to_name", data.get("customer_name", "")),
-        data.get("delivery_location", ""),
-    )
-    for i, row_num in enumerate(range(4, 12)):
-        ws.cell(row=row_num, column=1).value = addr[i] if i < len(addr) else ""
+    # 데이터 행 (row 29부터)
+    DATA_START = 29
+    total_qty = 0
+    total_ext = 0.0
+    has_price = False
 
-    # SA# / Tax ID / 최종 목적지
-    ws["I16"] = f"  SA# : {data.get('po_number', '')}"
-    ws["I18"] = f"  Tax ID : {data.get('tax_id', '')}" if data.get("tax_id") else ""
-    ws["D18"] = data.get("final_destination", "")
+    for idx, item in enumerate(items):
+        row = DATA_START + idx
+        qty_num, up_num, extended = _calc_item_amounts(item)
+        ws[f"A{row}"] = item.get("part_number", "")
+        ws[f"E{row}"] = item.get("description", "")
+        ws[f"H{row}"] = qty_num
+        ws[f"J{row}"] = up_num if up_num != "" else None
+        ws[f"K{row}"] = extended if extended != "" else None
+        ws[f"M{row}"] = item.get("po_number", header.get("po_number", ""))
+        ws[f"N{row}"] = item.get("ran_number", "")
 
-    # 데이터 행 (row 29)
-    qty_num, up_num, extended = _calc_amounts(data)
-    ws["A29"] = data.get("part_number", "")
-    ws["E29"] = data.get("description", "")
-    ws["H29"] = qty_num
-    ws["J29"] = up_num if up_num else ""
-    ws["K29"] = extended if extended != "" else ""
-    ws["M29"] = data.get("po_number", "")
-    ws["N29"] = data.get("ran_number", "")
+        if isinstance(qty_num, int):
+            total_qty += qty_num
+        if extended != "":
+            total_ext += float(extended)
+            has_price = True
 
-    # 합계 행 (row 30)
-    ws["A30"] = "TOTAL"
-    ws["H30"] = qty_num
-    ws["K30"] = extended if extended != "" else ""
+    # TOTAL 행
+    total_row = DATA_START + len(items)
+    ws[f"A{total_row}"] = "TOTAL"
+    ws[f"H{total_row}"] = total_qty
+    ws[f"K{total_row}"] = round(total_ext, 2) if has_price else None
 
     _keep_only(wb, "IN")
     return _to_bytes(wb)
 
 
-# ─── Packing List (KCR26-06 PA 시트 기반) ────────────────────────────
+# ─── Packing List (다품번 지원) ──────────────────────────────
 
-def build_packing_list(data: dict) -> bytes:
+def build_packing_list(header: dict, items: list[dict] | None = None) -> bytes:
+    """
+    header: doc_number, ship_to_name, delivery_location, final_destination,
+            sailing_date, po_number
+    items:  list of {part_number, description, quantity, net_weight_per_pc,
+                     pcs_per_box, po_number, ran_number}
+    """
+    if items is None:
+        items = header.get("_items") or [header]
+
     if not TEMPLATE_PATH.exists():
-        raise FileNotFoundError(
-            f"Packing List 양식 파일을 찾을 수 없습니다: {TEMPLATE_PATH}\n"
-            "프로젝트 루트의 'ship doc  ex/KCR26-06.xlsx' 파일이 필요합니다."
-        )
+        raise FileNotFoundError(f"Packing List 양식 파일 없음: {TEMPLATE_PATH}")
 
     wb = load_workbook(TEMPLATE_PATH)
     ws = wb["PA"]
 
-    # 서류 번호 / 날짜
-    ws["H2"] = data.get("doc_number", "")
-    ws["K2"] = date.today().strftime("%Y-%m-%d")
+    _write_header(ws, "packing", header)
 
-    # 납품처 — 행 4~11
-    addr = _address_lines(
-        data.get("ship_to_name", data.get("customer_name", "")),
-        data.get("delivery_location", ""),
-    )
-    for i, row_num in enumerate(range(4, 12)):
-        ws.cell(row=row_num, column=1).value = addr[i] if i < len(addr) else ""
+    DATA_START = 29
+    total_qty = 0
+    total_box = 0
+    total_net = 0.0
+    total_gross = 0.0
+    has_weight = False
 
-    # SA# / Tax ID / 최종 목적지
-    ws["H16"] = f"  SA# : {data.get('po_number', '')}"
-    ws["H18"] = f"  Tax ID : {data.get('tax_id', '')}" if data.get("tax_id") else ""
-    ws["D18"] = data.get("final_destination", "")
+    for idx, item in enumerate(items):
+        row = DATA_START + idx
+        qty = item.get("quantity", 0)
+        pcs_per_box = item.get("pcs_per_box") or 360
+        net_w = item.get("net_weight_per_pc") or 0
 
-    # 박스/중량 계산
-    qty = data.get("quantity", 0)
-    pcs_per_box = data.get("pcs_per_box") or 360
-    net_w = data.get("net_weight_per_pc") or 0
-    try:
-        qty_num = int(qty)
-        box_count = -(-qty_num // int(pcs_per_box))
-        net_total = round(float(net_w) * qty_num, 3) if net_w else ""
-        gross_total = round(float(net_total) * 1.023, 3) if net_total != "" else ""
-    except (ValueError, TypeError):
-        qty_num = qty
-        box_count = ""
-        net_total = ""
-        gross_total = ""
+        try:
+            qty_num = int(qty)
+            box_count = math.ceil(qty_num / int(pcs_per_box))
+            net_total   = round(float(net_w) * qty_num, 3) if net_w else ""
+            gross_total = round(float(net_total) * 1.023, 3) if net_total != "" else ""
+        except (ValueError, TypeError):
+            qty_num, box_count, net_total, gross_total = qty, "", "", ""
 
-    # 데이터 행 (row 29)
-    ws["A29"] = data.get("part_number", "")
-    ws["E29"] = data.get("description", "")
-    ws["H29"] = qty_num
-    ws["J29"] = box_count
-    ws["K29"] = net_total if net_total != "" else ""
-    ws["L29"] = gross_total if gross_total != "" else ""
-    ws["M29"] = ""  # CBM — 팔레트 치수 필요, 추후 구현
-    ws["N29"] = data.get("po_number", "")
-    ws["O29"] = data.get("ran_number", "")
+        ws[f"A{row}"] = item.get("part_number", "")
+        ws[f"E{row}"] = item.get("description", "")
+        ws[f"H{row}"] = qty_num
+        ws[f"J{row}"] = box_count
+        ws[f"K{row}"] = net_total   if net_total   != "" else None
+        ws[f"L{row}"] = gross_total if gross_total != "" else None
+        ws[f"M{row}"] = None  # CBM — 팔레트 치수 필요
+        ws[f"N{row}"] = item.get("po_number", header.get("po_number", ""))
+        ws[f"O{row}"] = item.get("ran_number", "")
 
-    # 합계 행 (row 30)
-    ws["A30"] = "TOTAL"
-    ws["H30"] = qty_num
-    ws["J30"] = box_count
-    ws["K30"] = net_total if net_total != "" else ""
-    ws["L30"] = gross_total if gross_total != "" else ""
+        if isinstance(qty_num, int):
+            total_qty += qty_num
+        if isinstance(box_count, int):
+            total_box += box_count
+        if net_total != "":
+            total_net   += float(net_total)
+            total_gross += float(gross_total)
+            has_weight = True
+
+    # TOTAL 행
+    total_row = DATA_START + len(items)
+    ws[f"A{total_row}"] = "TOTAL"
+    ws[f"H{total_row}"] = total_qty
+    ws[f"J{total_row}"] = total_box
+    ws[f"K{total_row}"] = round(total_net,   3) if has_weight else None
+    ws[f"L{total_row}"] = round(total_gross, 3) if has_weight else None
 
     _keep_only(wb, "PA")
     return _to_bytes(wb)

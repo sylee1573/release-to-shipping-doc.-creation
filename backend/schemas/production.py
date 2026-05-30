@@ -30,7 +30,9 @@ class ProductionResponse(BaseModel):
     quantity: int | None
     adjusted_quantity: int | None
     adjusted_delivery_date: date | None
+    sailing_date: date | None = None
     ran_number: int | None = None
+    weekly_schedule: list | None = None
     change_history: list
     excel_path: str | None
     status: str

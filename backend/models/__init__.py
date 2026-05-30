@@ -8,6 +8,7 @@ from models.production_request import ProductionRequest
 from models.shipment_doc import ShipmentDoc
 from models.customer_profile import CustomerProfile
 from models.item_master import ItemMaster
+from models.holiday_calendar import HolidayCalendar
 
 __all__ = [
     "Base",
@@ -20,4 +21,5 @@ __all__ = [
     "ShipmentDoc",
     "CustomerProfile",
     "ItemMaster",
+    "HolidayCalendar",
 ]

@@ -52,6 +52,7 @@ export const adminApi = {
     ship_to_name?: string
     ship_to_address?: string
     final_destination?: string
+    sea_transit_days: number
     shipping_prep_days: number
     production_lead_days: number
   }) => api.post<CustomerProfile>('/api/v1/admin/customer-profiles', body),
@@ -61,6 +62,7 @@ export const adminApi = {
     ship_to_name?: string
     ship_to_address?: string
     final_destination?: string
+    sea_transit_days?: number
     shipping_prep_days?: number
     production_lead_days?: number
   }) => api.put<CustomerProfile>(`/api/v1/admin/customer-profiles/${id}`, body),

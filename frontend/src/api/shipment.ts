@@ -11,8 +11,12 @@ export const shipmentApi = {
     return api.get<ShipmentDoc[]>(`/api/v1/shipment/${query ? `?${query}` : ''}`)
   },
 
-  create: (body: { production_request_id: string; doc_type: 'invoice' | 'packing_list' }) =>
-    api.post<ShipmentDoc>('/api/v1/shipment/', body),
+  // 단일 또는 복수 PR로 선적서류 생성
+  create: (body: {
+    production_request_ids?: string[]  // 다품번 복수 선택
+    production_request_id?: string     // 단일 (하위 호환)
+    doc_type: 'invoice' | 'packing_list'
+  }) => api.post<ShipmentDoc>('/api/v1/shipment/', body),
 
   downloadUrl: (id: string) => `/api/v1/shipment/${id}/download`,
 }

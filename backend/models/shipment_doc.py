@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import Base
@@ -17,6 +17,7 @@ class ShipmentDoc(Base):
         UUID(as_uuid=True), ForeignKey("production_requests.id"), nullable=False
     )
     doc_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'invoice' / 'packing_list'
+    pr_ids: Mapped[list | None] = mapped_column(JSONB)            # 다품번 묶음 시 PR UUID 목록
     doc_number: Mapped[str | None] = mapped_column(String(100))  # INV-{YYYYMM}-{0001} / PKL-...
     excel_path: Mapped[str | None] = mapped_column(String(1000))
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

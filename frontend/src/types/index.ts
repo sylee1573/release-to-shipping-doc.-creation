@@ -21,18 +21,31 @@ export interface Order {
   created_at: string
 }
 
+export interface WeeklySlot {
+  slot: number
+  week_start: string
+  delivery_date: string
+  quantity: number
+  sailing_date: string
+  production_end: string
+  is_holiday: boolean
+  holiday_reason?: string | null
+}
+
 export interface ProductionRequest {
   id: string
   tenant_id: string
   order_id: string
   request_number: string | null
   customer_name: string | null
+  sailing_date: string | null
   production_start_date: string | null
   production_end_date: string | null
   quantity: number | null
   adjusted_quantity: number | null
   adjusted_delivery_date: string | null
   ran_number: number | null
+  weekly_schedule: WeeklySlot[] | null
   change_history: ChangeHistory[]
   excel_path: string | null
   status: 'draft' | 'confirmed' | 'in_production' | 'done'
@@ -53,6 +66,7 @@ export interface ShipmentDoc {
   id: string
   tenant_id: string
   production_request_id: string
+  pr_ids: string[] | null
   doc_type: 'invoice' | 'packing_list'
   doc_number: string | null
   excel_path: string | null
@@ -107,6 +121,7 @@ export interface CustomerProfile {
   ship_to_name: string | null
   ship_to_address: string | null
   final_destination: string | null
+  sea_transit_days: number
   shipping_prep_days: number
   production_lead_days: number
   is_active: boolean

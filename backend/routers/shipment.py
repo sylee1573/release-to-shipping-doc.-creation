@@ -31,6 +31,17 @@ async def _generate_doc_number(db: AsyncSession, doc_type: str) -> str:
     return f"{full_prefix}{str(count + 1).zfill(4)}"
 
 
+async def _get_item_for_pr(db, tenant_id, part_number) -> ItemMaster | None:
+    result = await db.execute(
+        select(ItemMaster).where(
+            ItemMaster.tenant_id == tenant_id,
+            ItemMaster.part_number == part_number,
+            ItemMaster.is_active == True,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 @router.get("/", response_model=list[ShipmentResponse])
 async def list_shipment_docs(
     doc_type: str | None = Query(None),
@@ -42,16 +53,14 @@ async def list_shipment_docs(
 ):
     stmt = (
         select(ShipmentDoc)
-        .where(ShipmentDoc.tenant_id == user.tenant_id)  # tenant_id 필터
+        .where(ShipmentDoc.tenant_id == user.tenant_id)
         .order_by(ShipmentDoc.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+        .offset(offset).limit(limit)
     )
     if doc_type:
         stmt = stmt.where(ShipmentDoc.doc_type == doc_type)
     if production_request_id:
         stmt = stmt.where(ShipmentDoc.production_request_id == production_request_id)
-
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -63,7 +72,7 @@ async def get_shipment_doc(
     db: AsyncSession = Depends(get_db),
 ):
     doc = await db.get(ShipmentDoc, doc_id)
-    if not doc or doc.tenant_id != user.tenant_id:  # tenant_id 필터
+    if not doc or doc.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="선적서류를 찾을 수 없습니다")
     return doc
 
@@ -77,13 +86,18 @@ async def create_shipment_doc(
     if body.doc_type not in ("invoice", "packing_list"):
         raise HTTPException(status_code=400, detail="doc_type은 'invoice' 또는 'packing_list'여야 합니다")
 
-    pr = await db.get(ProductionRequest, body.production_request_id)
-    if not pr or pr.tenant_id != user.tenant_id:  # tenant_id 필터
-        raise HTTPException(status_code=404, detail="생산의뢰서를 찾을 수 없습니다")
+    pr_ids = body.production_request_ids  # validator에서 보장 (최소 1개)
+
+    # 모든 PR 권한 확인
+    for pr_id in pr_ids:
+        pr = await db.get(ProductionRequest, pr_id)
+        if not pr or pr.tenant_id != user.tenant_id:
+            raise HTTPException(status_code=404, detail=f"생산의뢰서 {pr_id}를 찾을 수 없습니다")
 
     doc = ShipmentDoc(
         tenant_id=user.tenant_id,
-        production_request_id=pr.id,
+        production_request_id=pr_ids[0],          # 대표 PR (FK 제약)
+        pr_ids=[str(pid) for pid in pr_ids],      # 전체 목록 (JSONB)
         doc_type=body.doc_type,
         doc_number=await _generate_doc_number(db, body.doc_type),
         issued_at=datetime.now(timezone.utc),
@@ -101,19 +115,21 @@ async def download_shipment_doc(
     db: AsyncSession = Depends(get_db),
 ):
     doc = await db.get(ShipmentDoc, doc_id)
-    if not doc or doc.tenant_id != user.tenant_id:  # tenant_id 필터
+    if not doc or doc.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="선적서류를 찾을 수 없습니다")
 
-    pr = await db.get(ProductionRequest, doc.production_request_id)
-    order = await db.get(Order, pr.order_id) if pr else None
-    confirmed = (order.confirmed_data or {}) if order else {}
-    customer_name = order.customer_name or "" if order else ""
-    part_number = str(confirmed.get("part_number", ""))
+    # 포함된 PR 목록 (단일 or 복수)
+    all_pr_ids = [uuid.UUID(pid) for pid in doc.pr_ids] if doc.pr_ids else [doc.production_request_id]
 
-    # 고객사 프로필 → 수신처 정보
+    # 대표 PR로 헤더 데이터 구성
+    first_pr   = await db.get(ProductionRequest, all_pr_ids[0])
+    first_order = await db.get(Order, first_pr.order_id) if first_pr else None
+    first_confirmed = (first_order.confirmed_data or {}) if first_order else {}
+    customer_name = first_order.customer_name or "" if first_order else ""
+
+    # 고객사 프로필
     cp_result = await db.execute(
-        select(CustomerProfile)
-        .where(
+        select(CustomerProfile).where(
             CustomerProfile.tenant_id == user.tenant_id,
             CustomerProfile.customer_name == customer_name,
             CustomerProfile.is_active == True,
@@ -121,39 +137,39 @@ async def download_shipment_doc(
     )
     cp = cp_result.scalar_one_or_none()
 
-    # 품목마스터 → 단가, 중량, 박스당 수량
-    im_result = await db.execute(
-        select(ItemMaster)
-        .where(
-            ItemMaster.tenant_id == user.tenant_id,
-            ItemMaster.part_number == part_number,
-            ItemMaster.is_active == True,
-        )
-    )
-    item = im_result.scalar_one_or_none()
-
-    data = {
-        "doc_number":         doc.doc_number,
-        "customer_name":      customer_name,
-        # 수신처: 고객사 프로필 우선, 없으면 confirmed_data 폴백
-        "ship_to_name":       (cp.ship_to_name if cp else None) or confirmed.get("ship_to_name", customer_name),
-        "delivery_location":  (cp.ship_to_address if cp else None) or confirmed.get("delivery_location", ""),
-        "final_destination":  (cp.final_destination if cp else None) or confirmed.get("final_destination", ""),
-        # 품목 정보: SA 파싱 데이터
-        "part_number":        part_number,
-        "description":        (item.description if item and item.description else None) or confirmed.get("description", ""),
-        "quantity":           (pr.adjusted_quantity or pr.quantity) if pr else "",
-        "unit":               confirmed.get("unit", "EA"),
-        "po_number":          confirmed.get("po_number", ""),
-        # RAN: 생산의뢰서에서 부여된 내부 RAN 사용 (SA Call Number 무시)
-        "ran_number":         pr.ran_number if pr and pr.ran_number else "",
-        # 단가·중량: 품목마스터 우선, 없으면 confirmed_data 폴백
-        "unit_price":         (float(item.unit_price) if item and item.unit_price else None) or confirmed.get("unit_price"),
-        "net_weight_per_pc":  float(item.net_weight_per_pc) if item and item.net_weight_per_pc else None,
-        "pcs_per_box":        item.pcs_per_box if item else None,
+    # 공통 헤더 (선적일자는 대표 PR 기준)
+    sailing_date = str(first_pr.sailing_date) if first_pr and first_pr.sailing_date else ""
+    header = {
+        "doc_number":        doc.doc_number,
+        "customer_name":     customer_name,
+        "ship_to_name":      (cp.ship_to_name if cp else None) or first_confirmed.get("ship_to_name", customer_name),
+        "delivery_location": (cp.ship_to_address if cp else None) or first_confirmed.get("delivery_location", ""),
+        "final_destination": (cp.final_destination if cp else None) or first_confirmed.get("final_destination", ""),
+        "sailing_date":      sailing_date,
+        "po_number":         first_confirmed.get("po_number", ""),
     }
 
-    excel_bytes = build_invoice(data) if doc.doc_type == "invoice" else build_packing_list(data)
+    # 품목별 라인 아이템 구성
+    items = []
+    for pr_id in all_pr_ids:
+        pr    = await db.get(ProductionRequest, pr_id)
+        order = await db.get(Order, pr.order_id) if pr else None
+        conf  = (order.confirmed_data or {}) if order else {}
+        pn    = str(conf.get("part_number", ""))
+        item_master = await _get_item_for_pr(db, user.tenant_id, pn)
+
+        items.append({
+            "part_number":      pn,
+            "description":      (item_master.description if item_master and item_master.description else None) or conf.get("description", ""),
+            "quantity":         (pr.adjusted_quantity or pr.quantity) if pr else "",
+            "unit_price":       (float(item_master.unit_price) if item_master and item_master.unit_price else None) or conf.get("unit_price"),
+            "net_weight_per_pc": float(item_master.net_weight_per_pc) if item_master and item_master.net_weight_per_pc else None,
+            "pcs_per_box":      item_master.pcs_per_box if item_master else None,
+            "po_number":        conf.get("po_number", header["po_number"]),
+            "ran_number":       pr.ran_number if pr and pr.ran_number else "",
+        })
+
+    excel_bytes = build_invoice(header, items) if doc.doc_type == "invoice" else build_packing_list(header, items)
     filename = f"{doc.doc_number or doc_id}.xlsx"
     return Response(
         content=excel_bytes,

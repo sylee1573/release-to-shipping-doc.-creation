@@ -17,6 +17,10 @@ export const productionApi = {
   create: (body: { order_id: string; quantity?: number; delivery_date?: string }) =>
     api.post<ProductionRequest>('/api/v1/production/', body),
 
+  // SA 기반 4주 롤링 생산계획 생성/갱신
+  generateWeekly: (body: { order_id: string }) =>
+    api.post<ProductionRequest>('/api/v1/production/generate-weekly', body),
+
   update: (id: string, body: { adjusted_quantity?: number; adjusted_delivery_date?: string; reason: string }) =>
     api.patch<ProductionRequest>(`/api/v1/production/${id}`, body),
 

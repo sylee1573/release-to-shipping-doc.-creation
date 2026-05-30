@@ -159,12 +159,13 @@ async def deactivate_template(
 
 class CustomerProfileCreate(BaseModel):
     customer_name: str
-    date_type: str = "arrival"          # 'arrival' | 'completion'
+    date_type: str = "arrival"           # 'arrival' | 'completion'
     ship_to_name: str | None = None
     ship_to_address: str | None = None
     final_destination: str | None = None
-    shipping_prep_days: int = 2
-    production_lead_days: int = 7
+    sea_transit_days: int = 21           # 해상 운송일수
+    shipping_prep_days: int = 2          # 출하 준비일수
+    production_lead_days: int = 7        # 생산 리드타임
 
 
 class CustomerProfileUpdate(BaseModel):
@@ -172,6 +173,7 @@ class CustomerProfileUpdate(BaseModel):
     ship_to_name: str | None = None
     ship_to_address: str | None = None
     final_destination: str | None = None
+    sea_transit_days: int | None = None
     shipping_prep_days: int | None = None
     production_lead_days: int | None = None
 
@@ -184,6 +186,7 @@ class CustomerProfileResponse(BaseModel):
     ship_to_name: str | None
     ship_to_address: str | None
     final_destination: str | None
+    sea_transit_days: int
     shipping_prep_days: int
     production_lead_days: int
     is_active: bool
@@ -221,6 +224,7 @@ async def create_customer_profile(
         ship_to_name=body.ship_to_name,
         ship_to_address=body.ship_to_address,
         final_destination=body.final_destination,
+        sea_transit_days=body.sea_transit_days,
         shipping_prep_days=body.shipping_prep_days,
         production_lead_days=body.production_lead_days,
     )
@@ -250,6 +254,8 @@ async def update_customer_profile(
         cp.ship_to_address = body.ship_to_address
     if body.final_destination is not None:
         cp.final_destination = body.final_destination
+    if body.sea_transit_days is not None:
+        cp.sea_transit_days = body.sea_transit_days
     if body.shipping_prep_days is not None:
         cp.shipping_prep_days = body.shipping_prep_days
     if body.production_lead_days is not None:
