@@ -2,22 +2,138 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { ordersApi } from '../api/orders'
+import { productionApi } from '../api/production'
 import FieldEditor from '../components/FieldEditor'
 import type { FieldValue } from '../types'
 
+// 우선 표시 필드 순서
 const FIELD_ORDER = [
   'customer_code',
   'part_number',
+  'description',
   'quantity',
   'unit',
   'delivery_date',
+  'po_number',
   'delivery_location',
+  'ship_to_name',
+  'unit_price',
 ]
 
+// 내부에서 자동 관리하므로 화면에 표시하지 않는 필드
+const HIDDEN_FIELDS = new Set(['ran_number'])
+
+// ── 생산의뢰서 생성 모달 ────────────────────────────────────
+function CreatePRModal({
+  orderId,
+  defaultQty,
+  defaultDate,
+  onClose,
+}: {
+  orderId: string
+  defaultQty: string
+  defaultDate: string
+  onClose: () => void
+}) {
+  const navigate = useNavigate()
+  const [qty, setQty] = useState(defaultQty)
+  const [deliveryDate, setDeliveryDate] = useState(defaultDate)
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      productionApi.create({
+        order_id: orderId,
+        quantity: qty ? Number(qty) : undefined,
+        delivery_date: deliveryDate || undefined,
+      }),
+    onSuccess: () => navigate('/production'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="px-6 pt-6 pb-2">
+          <h2 className="text-lg font-bold text-gray-900">생산의뢰서 생성</h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            발주서 확인 데이터 기준으로 생산의뢰서를 생성합니다
+          </p>
+        </div>
+
+        <div className="px-6 py-4 space-y-4">
+          {/* 납기일 유형 안내 */}
+          <div className="bg-blue-50 rounded-lg px-4 py-3 text-sm text-blue-700">
+            납기 역산은 관리 &gt; 고객사 프로필에 설정된 기준(도착일/완료일)과 리드타임을 자동 적용합니다
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              생산 수량 <span className="text-red-500">*</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                className="input flex-1"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                min={1}
+              />
+              <span className="text-sm text-gray-500">EA</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              SA 납기일 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              className="input"
+              value={deliveryDate}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              고객사 프로필 설정에 따라 생산 완료일·시작일이 자동 계산됩니다
+            </p>
+          </div>
+        </div>
+
+        {createMutation.isError && (
+          <p className="px-6 text-sm text-red-600">
+            {(createMutation.error as Error).message}
+          </p>
+        )}
+
+        <div className="px-6 py-4 flex justify-between items-center border-t border-gray-100">
+          <button
+            onClick={() => navigate('/production')}
+            className="text-sm text-gray-500 hover:text-gray-700"
+          >
+            나중에 생성
+          </button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="btn-secondary text-sm">
+              취소
+            </button>
+            <button
+              onClick={() => createMutation.mutate()}
+              disabled={!qty || !deliveryDate || createMutation.isPending}
+              className="btn-primary text-sm"
+            >
+              {createMutation.isPending ? '생성 중...' : '생산의뢰서 생성'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 메인 ───────────────────────────────────────────────────
 export default function ParseReview() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [editedValues, setEditedValues] = useState<Record<string, string>>({})
+  const [showPRModal, setShowPRModal] = useState(false)
 
   const { data: order, isLoading, isError } = useQuery({
     queryKey: ['order', id],
@@ -28,7 +144,7 @@ export default function ParseReview() {
   const confirmMutation = useMutation({
     mutationFn: (confirmedData: Record<string, string | number>) =>
       ordersApi.confirm(id!, confirmedData),
-    onSuccess: () => navigate('/production'),
+    onSuccess: () => setShowPRModal(true),  // 확인 완료 후 생산의뢰서 생성 모달
   })
 
   if (isLoading) {
@@ -60,9 +176,7 @@ export default function ParseReview() {
         <div className="text-4xl mb-3">⚠️</div>
         <p className="text-red-600 font-medium">파싱에 실패했습니다</p>
         <p className="text-gray-500 text-sm mt-2">PDF 형식을 확인하거나 다시 시도해 주세요</p>
-        <button onClick={() => navigate('/orders/upload')} className="btn-primary mt-4">
-          다시 업로드
-        </button>
+        <button onClick={() => navigate('/orders/upload')} className="btn-primary mt-4">다시 업로드</button>
       </div>
     )
   }
@@ -78,31 +192,34 @@ export default function ParseReview() {
   const fields = order.parsed_data.fields
   const parseNotes = order.parsed_data.parse_notes
 
-  // 빨간 필드 중 아직 수정하지 않은 것이 있으면 저장 불가
   const unresolvedRedFields = Object.entries(fields).filter(
-    ([name, field]) => field.confidence < 0.7 && editedValues[name] === undefined
+    ([name, field]) => !HIDDEN_FIELDS.has(name) && field.confidence < 0.7 && editedValues[name] === undefined
   )
   const canSave = unresolvedRedFields.length === 0
 
-  // 저장 시 최종 데이터 조합 (수정된 값 우선)
   const buildConfirmedData = () => {
     const result: Record<string, string | number> = {}
     for (const [name, field] of Object.entries(fields)) {
+      if (HIDDEN_FIELDS.has(name)) continue   // 내부 자동관리 필드 제외
       result[name] = editedValues[name] ?? String(field.value ?? '')
     }
     return result
   }
 
-  // 신뢰도 분포 요약
-  const highCount = Object.values(fields).filter((f) => f.confidence >= 0.9).length
-  const midCount = Object.values(fields).filter((f) => f.confidence >= 0.7 && f.confidence < 0.9).length
-  const lowCount = Object.values(fields).filter((f) => f.confidence < 0.7).length
+  const visibleFields = Object.entries(fields).filter(([k]) => !HIDDEN_FIELDS.has(k))
+  const highCount = visibleFields.filter(([, f]) => f.confidence >= 0.9).length
+  const midCount  = visibleFields.filter(([, f]) => f.confidence >= 0.7 && f.confidence < 0.9).length
+  const lowCount  = visibleFields.filter(([, f]) => f.confidence < 0.7).length
 
-  // 표시 순서: FIELD_ORDER에 있는 것 먼저, 나머지는 뒤에
   const orderedFields = [
-    ...FIELD_ORDER.filter((k) => k in fields).map((k) => [k, fields[k]] as [string, FieldValue]),
-    ...Object.entries(fields).filter(([k]) => !FIELD_ORDER.includes(k)),
+    ...FIELD_ORDER.filter((k) => k in fields && !HIDDEN_FIELDS.has(k)).map((k) => [k, fields[k]] as [string, FieldValue]),
+    ...Object.entries(fields).filter(([k]) => !FIELD_ORDER.includes(k) && !HIDDEN_FIELDS.has(k)),
   ]
+
+  // 생산의뢰서 생성 모달에 넘길 기본값
+  const confirmedData = order.confirmed_data ?? {}
+  const defaultQty    = String(editedValues['quantity'] ?? confirmedData['quantity'] ?? fields['quantity']?.value ?? '')
+  const defaultDate   = String(editedValues['delivery_date'] ?? confirmedData['delivery_date'] ?? fields['delivery_date']?.value ?? '')
 
   return (
     <div className="max-w-2xl">
@@ -115,6 +232,11 @@ export default function ParseReview() {
         </div>
         <h1 className="text-2xl font-bold text-gray-900">파싱 결과 확인</h1>
         <p className="text-gray-500 text-sm mt-1">{order.file_name}</p>
+        {order.confirmed_at && (
+          <span className="inline-block mt-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+            확인 완료 — {new Date(order.confirmed_at).toLocaleDateString('ko-KR')}
+          </span>
+        )}
       </div>
 
       {/* 신뢰도 요약 */}
@@ -128,20 +250,17 @@ export default function ParseReview() {
           )}
         </div>
         <div className="flex gap-4 text-sm">
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-green-400 inline-block" />
-            <span className="text-gray-600">정상 <strong className="text-gray-900">{highCount}</strong></span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-yellow-400 inline-block" />
-            <span className="text-gray-600">확인 권장 <strong className="text-gray-900">{midCount}</strong></span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-red-400 inline-block" />
-            <span className="text-gray-600">수정 필수 <strong className="text-gray-900">{lowCount}</strong></span>
-          </div>
+          {[
+            { color: 'bg-green-400', label: '정상', count: highCount },
+            { color: 'bg-yellow-400', label: '확인 권장', count: midCount },
+            { color: 'bg-red-400', label: '수정 필수', count: lowCount },
+          ].map((s) => (
+            <div key={s.label} className="flex items-center gap-1.5">
+              <span className={`w-3 h-3 rounded-full ${s.color} inline-block`} />
+              <span className="text-gray-600">{s.label} <strong className="text-gray-900">{s.count}</strong></span>
+            </div>
+          ))}
         </div>
-
         {parseNotes && (
           <div className="mt-3 pt-3 border-t border-gray-100 text-sm text-yellow-700 bg-yellow-50 rounded-lg px-3 py-2">
             <span className="font-medium">AI 메모: </span>{parseNotes}
@@ -165,13 +284,10 @@ export default function ParseReview() {
       {/* 저장 버튼 */}
       <div className="sticky bottom-0 bg-white border-t border-gray-100 -mx-8 px-8 py-4 flex items-center justify-between">
         <div className="text-sm text-gray-500">
-          {canSave ? (
-            <span className="text-green-600 font-medium">모든 항목 확인 완료 — 저장 가능</span>
-          ) : (
-            <span className="text-red-600">
-              빨간 항목을 모두 수정해야 저장할 수 있습니다
-            </span>
-          )}
+          {canSave
+            ? <span className="text-green-600 font-medium">모든 항목 확인 완료 — 저장 가능</span>
+            : <span className="text-red-600">빨간 항목을 모두 수정해야 저장할 수 있습니다</span>
+          }
         </div>
         <div className="flex gap-3">
           <button onClick={() => navigate(-1)} className="btn-secondary">취소</button>
@@ -189,6 +305,16 @@ export default function ParseReview() {
         <p className="text-sm text-red-600 mt-2 text-right">
           {(confirmMutation.error as Error).message}
         </p>
+      )}
+
+      {/* 생산의뢰서 생성 모달 */}
+      {showPRModal && (
+        <CreatePRModal
+          orderId={id!}
+          defaultQty={defaultQty}
+          defaultDate={defaultDate}
+          onClose={() => setShowPRModal(false)}
+        />
       )}
     </div>
   )

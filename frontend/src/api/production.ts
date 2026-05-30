@@ -14,7 +14,7 @@ export const productionApi = {
   get: (id: string) =>
     api.get<ProductionRequest>(`/api/v1/production/${id}`),
 
-  create: (body: { order_id: string; quantity: number; delivery_date: string }) =>
+  create: (body: { order_id: string; quantity?: number; delivery_date?: string }) =>
     api.post<ProductionRequest>('/api/v1/production/', body),
 
   update: (id: string, body: { adjusted_quantity?: number; adjusted_delivery_date?: string; reason: string }) =>

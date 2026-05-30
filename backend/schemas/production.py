@@ -5,8 +5,8 @@ from pydantic import BaseModel
 
 class ProductionCreate(BaseModel):
     order_id: uuid.UUID
-    quantity: int
-    delivery_date: date
+    quantity: int | None = None          # None이면 발주서 confirmed_data에서 자동 채움
+    delivery_date: date | None = None    # None이면 발주서 confirmed_data에서 자동 채움
 
 
 class ProductionUpdate(BaseModel):
@@ -30,6 +30,7 @@ class ProductionResponse(BaseModel):
     quantity: int | None
     adjusted_quantity: int | None
     adjusted_delivery_date: date | None
+    ran_number: int | None = None
     change_history: list
     excel_path: str | None
     status: str

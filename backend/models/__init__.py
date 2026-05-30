@@ -6,6 +6,8 @@ from models.parsing_template import ParsingTemplate
 from models.order import Order
 from models.production_request import ProductionRequest
 from models.shipment_doc import ShipmentDoc
+from models.customer_profile import CustomerProfile
+from models.item_master import ItemMaster
 
 __all__ = [
     "Base",
@@ -16,4 +18,6 @@ __all__ = [
     "Order",
     "ProductionRequest",
     "ShipmentDoc",
+    "CustomerProfile",
+    "ItemMaster",
 ]

@@ -21,6 +21,7 @@ class ProductionRequest(Base):
     adjusted_quantity: Mapped[int | None] = mapped_column(Integer)
     adjusted_delivery_date: Mapped[date | None] = mapped_column(DATE)
     change_history: Mapped[list] = mapped_column(JSONB, default=list)  # 변경이력 배열
+    ran_number: Mapped[int | None] = mapped_column(Integer)  # 내부 RAN (10, 20, 30...)
     excel_path: Mapped[str | None] = mapped_column(String(1000))
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/confirmed/in_production/done
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

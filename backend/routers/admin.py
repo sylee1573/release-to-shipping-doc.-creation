@@ -2,12 +2,16 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from middleware.auth import require_superadmin
+from middleware.tenant_guard import require_active_tenant
+from models.customer_profile import CustomerProfile
 from models.invoice import Invoice
+from models.item_master import ItemMaster
 from models.parsing_template import ParsingTemplate
 from models.tenant import Tenant
 from models.user import User
@@ -23,13 +27,14 @@ from schemas.common import MessageResponse
 router = APIRouter(tags=["admin"])
 
 
+# ── 플랫폼 관리 (superadmin 전용) ─────────────────────────────────────
+
 @router.get("/usage", response_model=list[UsageReport])
 async def get_usage(
     billing_month: str | None = None,
     _: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """고객사별 월별 사용량 리포트 (관리자 전용)."""
     query = (
         select(
             Invoice.tenant_id,
@@ -43,7 +48,6 @@ async def get_usage(
     )
     if billing_month:
         query = query.where(Invoice.billing_month == billing_month)
-
     result = await db.execute(query.order_by(Invoice.billing_month.desc()))
     rows = result.all()
     return [
@@ -65,11 +69,9 @@ async def restore_tenant(
     _: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """입금 확인 후 서비스 복구 (관리자 전용)."""
     tenant = await db.get(Tenant, tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="고객사를 찾을 수 없습니다")
-
     tenant.is_active = True
     tenant.suspended_at = None
     await db.commit()
@@ -81,7 +83,6 @@ async def list_tenants(
     _: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """고객사 목록 조회 (관리자 전용)."""
     result = await db.execute(select(Tenant).order_by(Tenant.name))
     return result.scalars().all()
 
@@ -92,7 +93,6 @@ async def create_tenant(
     _: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """신규 고객사 등록 (관리자 전용)."""
     tenant = Tenant(
         name=body.name,
         business_number=body.business_number,
@@ -111,7 +111,6 @@ async def list_templates(
     _: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """발주서 양식 템플릿 목록 (관리자 전용)."""
     stmt = select(ParsingTemplate).where(ParsingTemplate.is_active == True)
     if tenant_id:
         stmt = stmt.where(ParsingTemplate.tenant_id == tenant_id)
@@ -126,11 +125,9 @@ async def create_parsing_template(
     _: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """발주서 양식 템플릿 등록 (관리자 전용)."""
     tenant = await db.get(Tenant, body.tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="고객사를 찾을 수 없습니다")
-
     tmpl = ParsingTemplate(
         tenant_id=body.tenant_id,
         customer_name=body.customer_name,
@@ -150,10 +147,235 @@ async def deactivate_template(
     _: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """템플릿 비활성화 (관리자 전용). 삭제 대신 is_active=False."""
     tmpl = await db.get(ParsingTemplate, template_id)
     if not tmpl:
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
     tmpl.is_active = False
     await db.commit()
     return MessageResponse(message="템플릿이 비활성화되었습니다")
+
+
+# ── 고객사 프로필 (테넌트 자체 관리) ──────────────────────────────────
+
+class CustomerProfileCreate(BaseModel):
+    customer_name: str
+    date_type: str = "arrival"          # 'arrival' | 'completion'
+    ship_to_name: str | None = None
+    ship_to_address: str | None = None
+    final_destination: str | None = None
+    shipping_prep_days: int = 2
+    production_lead_days: int = 7
+
+
+class CustomerProfileUpdate(BaseModel):
+    date_type: str | None = None
+    ship_to_name: str | None = None
+    ship_to_address: str | None = None
+    final_destination: str | None = None
+    shipping_prep_days: int | None = None
+    production_lead_days: int | None = None
+
+
+class CustomerProfileResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    customer_name: str
+    date_type: str
+    ship_to_name: str | None
+    ship_to_address: str | None
+    final_destination: str | None
+    shipping_prep_days: int
+    production_lead_days: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/customer-profiles", response_model=list[CustomerProfileResponse])
+async def list_customer_profiles(
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CustomerProfile)
+        .where(CustomerProfile.tenant_id == user.tenant_id, CustomerProfile.is_active == True)
+        .order_by(CustomerProfile.customer_name)
+    )
+    return result.scalars().all()
+
+
+@router.post("/customer-profiles", response_model=CustomerProfileResponse, status_code=201)
+async def create_customer_profile(
+    body: CustomerProfileCreate,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.date_type not in ("arrival", "completion"):
+        raise HTTPException(status_code=422, detail="date_type은 'arrival' 또는 'completion'이어야 합니다")
+    cp = CustomerProfile(
+        tenant_id=user.tenant_id,
+        customer_name=body.customer_name,
+        date_type=body.date_type,
+        ship_to_name=body.ship_to_name,
+        ship_to_address=body.ship_to_address,
+        final_destination=body.final_destination,
+        shipping_prep_days=body.shipping_prep_days,
+        production_lead_days=body.production_lead_days,
+    )
+    db.add(cp)
+    await db.commit()
+    await db.refresh(cp)
+    return cp
+
+
+@router.put("/customer-profiles/{cp_id}", response_model=CustomerProfileResponse)
+async def update_customer_profile(
+    cp_id: uuid.UUID,
+    body: CustomerProfileUpdate,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    cp = await db.get(CustomerProfile, cp_id)
+    if not cp or cp.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="고객사 프로필을 찾을 수 없습니다")
+    if body.date_type is not None:
+        if body.date_type not in ("arrival", "completion"):
+            raise HTTPException(status_code=422, detail="date_type은 'arrival' 또는 'completion'이어야 합니다")
+        cp.date_type = body.date_type
+    if body.ship_to_name is not None:
+        cp.ship_to_name = body.ship_to_name
+    if body.ship_to_address is not None:
+        cp.ship_to_address = body.ship_to_address
+    if body.final_destination is not None:
+        cp.final_destination = body.final_destination
+    if body.shipping_prep_days is not None:
+        cp.shipping_prep_days = body.shipping_prep_days
+    if body.production_lead_days is not None:
+        cp.production_lead_days = body.production_lead_days
+    await db.commit()
+    await db.refresh(cp)
+    return cp
+
+
+@router.delete("/customer-profiles/{cp_id}", response_model=MessageResponse)
+async def delete_customer_profile(
+    cp_id: uuid.UUID,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    cp = await db.get(CustomerProfile, cp_id)
+    if not cp or cp.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="고객사 프로필을 찾을 수 없습니다")
+    cp.is_active = False
+    await db.commit()
+    return MessageResponse(message="삭제되었습니다")
+
+
+# ── 품목마스터 (테넌트 자체 관리) ─────────────────────────────────────
+
+class ItemMasterCreate(BaseModel):
+    customer_name: str
+    part_number: str
+    description: str | None = None
+    unit_price: float | None = None
+    net_weight_per_pc: float | None = None
+    pcs_per_box: int | None = None
+
+
+class ItemMasterUpdate(BaseModel):
+    description: str | None = None
+    unit_price: float | None = None
+    net_weight_per_pc: float | None = None
+    pcs_per_box: int | None = None
+
+
+class ItemMasterResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    customer_name: str
+    part_number: str
+    description: str | None
+    unit_price: float | None
+    net_weight_per_pc: float | None
+    pcs_per_box: int | None
+    ran_last: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/item-master", response_model=list[ItemMasterResponse])
+async def list_item_master(
+    customer_name: str | None = None,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ItemMaster).where(ItemMaster.tenant_id == user.tenant_id, ItemMaster.is_active == True)
+    if customer_name:
+        stmt = stmt.where(ItemMaster.customer_name == customer_name)
+    stmt = stmt.order_by(ItemMaster.customer_name, ItemMaster.part_number)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.post("/item-master", response_model=ItemMasterResponse, status_code=201)
+async def create_item_master(
+    body: ItemMasterCreate,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    item = ItemMaster(
+        tenant_id=user.tenant_id,
+        customer_name=body.customer_name,
+        part_number=body.part_number,
+        description=body.description,
+        unit_price=body.unit_price,
+        net_weight_per_pc=body.net_weight_per_pc,
+        pcs_per_box=body.pcs_per_box,
+        ran_last=0,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.put("/item-master/{item_id}", response_model=ItemMasterResponse)
+async def update_item_master(
+    item_id: uuid.UUID,
+    body: ItemMasterUpdate,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await db.get(ItemMaster, item_id)
+    if not item or item.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="품목을 찾을 수 없습니다")
+    if body.description is not None:
+        item.description = body.description
+    if body.unit_price is not None:
+        item.unit_price = body.unit_price
+    if body.net_weight_per_pc is not None:
+        item.net_weight_per_pc = body.net_weight_per_pc
+    if body.pcs_per_box is not None:
+        item.pcs_per_box = body.pcs_per_box
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.delete("/item-master/{item_id}", response_model=MessageResponse)
+async def delete_item_master(
+    item_id: uuid.UUID,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await db.get(ItemMaster, item_id)
+    if not item or item.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="품목을 찾을 수 없습니다")
+    item.is_active = False
+    await db.commit()
+    return MessageResponse(message="삭제되었습니다")

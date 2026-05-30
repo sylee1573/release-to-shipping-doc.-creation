@@ -32,6 +32,7 @@ export interface ProductionRequest {
   quantity: number | null
   adjusted_quantity: number | null
   adjusted_delivery_date: string | null
+  ran_number: number | null
   change_history: ChangeHistory[]
   excel_path: string | null
   status: 'draft' | 'confirmed' | 'in_production' | 'done'
@@ -96,4 +97,34 @@ export interface ParsingTemplate {
   template_description: string | null
   is_active: boolean
   created_at: string
+}
+
+export interface CustomerProfile {
+  id: string
+  tenant_id: string
+  customer_name: string
+  date_type: 'arrival' | 'completion'
+  ship_to_name: string | null
+  ship_to_address: string | null
+  final_destination: string | null
+  shipping_prep_days: number
+  production_lead_days: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ItemMaster {
+  id: string
+  tenant_id: string
+  customer_name: string
+  part_number: string
+  description: string | null
+  unit_price: number | null
+  net_weight_per_pc: number | null
+  pcs_per_box: number | null
+  ran_last: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
 }

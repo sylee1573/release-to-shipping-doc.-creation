@@ -9,7 +9,7 @@
 
 **프로젝트명:** 고객발주 기반 내부생산의뢰서 \& 선적서류 자동생성 SaaS
 **타겟 고객:** 자동차 2·3차 부품사 (직원 30\~200명 규모)
-**핵심 가치:** 고객사 발주서(PDF/Excel) → AI 파싱 → 생산의뢰서 + Invoice + Packing List 자동생성
+**핵심 가치:** 고객사 발주서(PDF — Phase 1 / Excel — Phase 2) → AI 파싱 → 생산의뢰서 + Invoice + Packing List 자동생성
 **배포 형태:** SaaS (멀티테넌트) + 향후 설치형(Docker) 옵션
 
 \---
@@ -156,6 +156,7 @@ CREATE TABLE invoices (
     status VARCHAR(20) DEFAULT 'pending',  -- pending / paid / overdue / suspended
     warning\_1\_sent\_at TIMESTAMP,           -- 1차 경고 발송일 (D+30)
     warning\_2\_sent\_at TIMESTAMP,           -- 2차 경고 발송일 (D+37)
+    warning\_3\_sent\_at TIMESTAMP,           -- 중단 예고 발송일 (D+44)
     created\_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -175,14 +176,17 @@ CREATE TABLE orders (
     created\_at TIMESTAMP DEFAULT NOW()
 );
 
--- 파싱 결과 구조 (parsed\_data JSONB 내부 형식)
+-- 파싱 결과 구조 (parsed\_data JSONB 내부 형식 — §5 AI 응답과 동일 구조로 저장)
 -- {
---   "customer\_code": {"value": "HMC-001", "confidence": 0.97},
---   "part\_number":   {"value": "85310-AA000", "confidence": 0.95},
---   "quantity":      {"value": 500, "confidence": 0.88},
---   "unit":          {"value": "EA", "confidence": 0.99},
---   "delivery\_date": {"value": "2026-06-30", "confidence": 0.72},  -- 낮으면 빨간색
---   "delivery\_location": {"value": "울산 1공장", "confidence": 0.81}
+--   "fields": {
+--     "customer\_code":     {"value": "HMC-001",     "confidence": 0.97, "raw\_text": "발주처: HMC-001"},
+--     "part\_number":       {"value": "85310-AA000",  "confidence": 0.95, "raw\_text": "품번 85310-AA000"},
+--     "quantity":          {"value": 500,            "confidence": 0.88, "raw\_text": "수량 500EA"},
+--     "unit":              {"value": "EA",           "confidence": 0.99, "raw\_text": "EA"},
+--     "delivery\_date":     {"value": "2026-06-30",   "confidence": 0.72, "raw\_text": "납기 6/30"},
+--     "delivery\_location": {"value": "울산 1공장",   "confidence": 0.81, "raw\_text": "납품처: 울산1"}
+--   },
+--   "parse\_notes": "납기일 표기가 월/일 형식으로 연도 추정 필요"
 -- }
 
 -- 생산의뢰서
@@ -316,7 +320,7 @@ def get\_ai\_provider() -> BaseAIProvider:
     else:
         raise ValueError(f"지원하지 않는 AI\_PROVIDER: {provider}")
 
-# 전역 싱글턴 (앱 시작 시 1회 초기화)
+# 전역 싱글턴 (앱 시작 시 1회 초기화 — 프로바이더 변경 시 앱 재시작 필요)
 ai\_provider: BaseAIProvider = get\_ai\_provider()
 ```
 
@@ -606,6 +610,7 @@ SENTRY\_DSN=...
 ### Phase 2 (2\~3개월)
 
 * 스캔 PDF OCR 지원
+* Excel 발주서 파싱 지원 (openpyxl 읽기)
 * ERP 연동 API (요청 시)
 * 수량/납기 변경 대시보드 고도화
 
@@ -720,4 +725,89 @@ SENTRY\_DSN=...
 
 * PDF 업로드 → 파싱 결과 화면 전환: **10초 이내** (섹션 11-6 참조)
 * 10초 초과 시 비동기 처리 + 폴링 방식으로 전환하고 재검증
+
+\---
+
+## 14\. 에이전트 개발 운영 계획
+
+> Claude Code 에이전트를 역할별로 분리해 개발을 진행할 때의 구조, 게이트 기반 검증, 완료 조건을 정의한다.
+
+### 에이전트 구조 (총 4개)
+
+| # | 에이전트 | 역할 |
+|---|---------|------|
+| 1 | **코디네이터** | 스펙 확정, 게이트 판정, 통합 검증 |
+| 2 | **백엔드** | FastAPI, DB, AI 파싱, Excel, 크론잡 |
+| 3 | **프론트엔드** | React UI, 신뢰도 시각화, 미납 화면 |
+| 4 | **DevOps** | Railway, Vercel, GitHub Actions, Docker |
+
+> AI/ML 전문 에이전트는 별도로 두지 않는다. 프롬프트 최적화·비용 관리는 백엔드 에이전트가 담당. 파싱 정확도 85% 미달 시에만 분리 검토.
+
+### 전체 게이트 흐름
+
+```
+[코디네이터: GATE-0 스펙 확정]
+        ↓
+[백엔드 1~2단계] ──병렬── [프론트 1단계]
+        ↓ GATE-1: health 200 + JWT 인증
+[백엔드 3단계] ──병렬── [프론트 2~3단계]
+        ↓ GATE-2: 파싱 E2E + 신뢰도 색상
+[백엔드 4단계] ──병렬── [프론트 4단계] ──병렬── [DevOps 1~2단계]
+        ↓ GATE-3: 전체 기능 완료
+[DevOps 3~4단계: CI/CD + 환경변수]
+        ↓ GATE-4: 배포 완료
+[코디네이터: GATE-5 파일럿 E2E 최종 검증]
+```
+
+### 게이트 통과 판정 기준
+
+| 게이트 | 판정자 | 판정 기준 |
+|--------|--------|-----------|
+| GATE-0 | 코디네이터 | API 스펙 문서 + DB 스키마 확정 |
+| GATE-1 | 코디네이터 | `/api/v1/health` 200 + JWT 인증 동작 |
+| GATE-2 | 코디네이터 | 파싱 결과 E2E + `/gstack` 신뢰도 색상 체크리스트 |
+| GATE-3 | 코디네이터 | 전체 백엔드 `pytest` + 프론트 gstack 체크리스트 전 항목 |
+| GATE-4 | 코디네이터 | 외부 URL 전체 플로우 10초 이내 + Sentry 수집 확인 |
+| GATE-5 | 사람 (최종) | 파일럿 고객사 실제 발주서 파싱 정확도 **85% 이상** |
+
+### 백엔드 에이전트 — 단계별 계획
+
+| 게이트 | 작업 | 검증 방법 | 이동 조건 |
+|--------|------|-----------|-----------|
+| GATE-0→1 | DB 스키마(RLS), JWT 미들웨어 | RLS 격리 확인, health 200 | 외부 URL health 응답 |
+| GATE-1→2 | pdfplumber + AI 파싱 + `parsed_data` 저장 | 샘플 발주서 1건 → JSONB 반환, 비용 $0.02↓ | `/orders/{id}/parse-result` 스펙 확정 |
+| GATE-2→3 | 생산의뢰서 Excel, 납기 역산, 변경이력 | PR-202606-0001 번호 자동생성, 수량 변경 이력 배열 | 다운로드 엔드포인트 200 |
+| GATE-3→4 | APScheduler 미납 크론잡, tenant\_guard | 날짜 mock D+30/37/44/45 트리거, 423 응답 | 전체 `pytest` 통과 |
+
+**최종 완료 조건:**
+* 샘플 발주서 10건 파싱 정확도 **85% 이상**
+* 모든 DB 쿼리 `tenant_id` 필터 포함
+* `pytest` 전체 통과
+
+### 프론트엔드 에이전트 — 단계별 계획
+
+| 게이트 | 작업 | 검증 방법 | 이동 조건 |
+|--------|------|-----------|-----------|
+| GATE-0→1 | Vite + Tailwind + React Query + Zustand, 로그인 | `npm run build` 에러 0 | 백엔드 JWT 연동 성공 |
+| GATE-1→2 | `OrderUpload.tsx` 드래그앤드롭, 비허용 파일 오류 | `/gstack` 업로드 → ParseReview 자동 이동 | 업로드 → 대기 화면 전환 |
+| GATE-2→3 | `ParseReview.tsx` 신뢰도 3색, 저장 버튼 조건 | 빨간 필드 → 저장 비활성화, 수정 후 → 활성화 | gstack 색상 체크리스트 전 항목 |
+| GATE-3→4 | `ProductionList.tsx`, `Admin.tsx`, 423 리다이렉트 | 423 수신 → 미납 안내 화면, 사용량 테이블 | TypeScript 에러 0 |
+
+**최종 완료 조건:**
+* `/gstack` 체크리스트 **전 항목** 통과 (섹션 13 기준)
+* 업로드 → 파싱 결과 전환 **10초 이내**
+* TypeScript 컴파일 에러 0
+
+### DevOps 에이전트 — 단계별 계획
+
+| 게이트 | 작업 | 검증 방법 | 이동 조건 |
+|--------|------|-----------|-----------|
+| GATE-0→1 | Railway PostgreSQL + FastAPI 배포 | 외부 URL `/api/v1/health` 200 | 백엔드 에이전트에 `DATABASE_URL` 전달 |
+| GATE-3→4 | Vercel 배포, 시크릿 등록 | 배포 URL 로그인 → 파싱 플로우 동작 | Sentry 수집 확인 |
+| GATE-4→5 | GitHub Actions CI/CD, `docker-compose` 설치형 | PR 머지 → 자동 배포 → health 200 | main 브랜치 자동화 완료 |
+
+**최종 완료 조건:**
+* `.env` 1줄 변경으로 AI 프로바이더 전환 동작 확인
+* 코드 내 API 키 하드코딩 0건
+* `docker-compose up` 설치형 로컬 전체 플로우 동작
 

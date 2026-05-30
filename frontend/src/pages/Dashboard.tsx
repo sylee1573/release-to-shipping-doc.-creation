@@ -38,18 +38,23 @@ export default function Dashboard() {
   const { data: orders = [] } = useQuery({
     queryKey: ['orders-all'],
     queryFn: () => ordersApi.list({ limit: 200 }),
+    refetchInterval: (query) => {
+      const data = query.state.data as Order[] | undefined
+      return data?.some((o) => o.parse_status === 'processing') ? 3000 : false
+    },
   })
   const { data: productionItems = [] } = useQuery({
-    queryKey: ['production', ''],
-    queryFn: () => productionApi.list(),
+    queryKey: ['production'],
+    queryFn: () => productionApi.list({ limit: 200 }),
   })
   const { data: shipmentItems = [] } = useQuery({
-    queryKey: ['shipment', ''],
+    queryKey: ['shipment'],
     queryFn: () => shipmentApi.list({ limit: 200 }),
   })
 
   const ym = thisMonth()
   const thisMonthOrders = orders.filter((o) => o.created_at.startsWith(ym))
+  const processingOrders = orders.filter((o) => o.parse_status === 'processing')
   const pendingConfirm = orders.filter((o) => o.parse_status === 'done' && !o.confirmed_at)
   const parseFailed = orders.filter((o) => o.parse_status === 'failed')
   const recentOrders: Order[] = orders.slice(0, 5)
@@ -109,6 +114,19 @@ export default function Dashboard() {
           + 발주서 업로드
         </button>
       </div>
+
+      {/* 알림 배너: 파싱 중 */}
+      {processingOrders.length > 0 && (
+        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-5 py-3.5 flex items-center gap-3">
+          <svg className="animate-spin h-4 w-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+          </svg>
+          <p className="text-sm font-medium text-blue-800">
+            발주서 {processingOrders.length}건 파싱 중 — 완료되면 자동으로 업데이트됩니다
+          </p>
+        </div>
+      )}
 
       {/* 알림 배너: 확인 대기 */}
       {pendingConfirm.length > 0 && (

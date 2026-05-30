@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from middleware.tenant_guard import require_active_tenant
+from models.customer_profile import CustomerProfile
+from models.item_master import ItemMaster
 from models.order import Order
 from models.production_request import ProductionRequest
 from models.shipment_doc import ShipmentDoc
@@ -31,7 +33,7 @@ async def _generate_doc_number(db: AsyncSession, doc_type: str) -> str:
 
 @router.get("/", response_model=list[ShipmentResponse])
 async def list_shipment_docs(
-    doc_type: str | None = Query(None, description="invoice 또는 packing_list"),
+    doc_type: str | None = Query(None),
     production_request_id: uuid.UUID | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -105,14 +107,50 @@ async def download_shipment_doc(
     pr = await db.get(ProductionRequest, doc.production_request_id)
     order = await db.get(Order, pr.order_id) if pr else None
     confirmed = (order.confirmed_data or {}) if order else {}
+    customer_name = order.customer_name or "" if order else ""
+    part_number = str(confirmed.get("part_number", ""))
+
+    # 고객사 프로필 → 수신처 정보
+    cp_result = await db.execute(
+        select(CustomerProfile)
+        .where(
+            CustomerProfile.tenant_id == user.tenant_id,
+            CustomerProfile.customer_name == customer_name,
+            CustomerProfile.is_active == True,
+        )
+    )
+    cp = cp_result.scalar_one_or_none()
+
+    # 품목마스터 → 단가, 중량, 박스당 수량
+    im_result = await db.execute(
+        select(ItemMaster)
+        .where(
+            ItemMaster.tenant_id == user.tenant_id,
+            ItemMaster.part_number == part_number,
+            ItemMaster.is_active == True,
+        )
+    )
+    item = im_result.scalar_one_or_none()
 
     data = {
-        "doc_number": doc.doc_number,
-        "customer_name": order.customer_name if order else "",
-        "part_number": confirmed.get("part_number", ""),
-        "quantity": (pr.adjusted_quantity or pr.quantity) if pr else "",
-        "unit": confirmed.get("unit", "EA"),
-        "delivery_location": confirmed.get("delivery_location", ""),
+        "doc_number":         doc.doc_number,
+        "customer_name":      customer_name,
+        # 수신처: 고객사 프로필 우선, 없으면 confirmed_data 폴백
+        "ship_to_name":       (cp.ship_to_name if cp else None) or confirmed.get("ship_to_name", customer_name),
+        "delivery_location":  (cp.ship_to_address if cp else None) or confirmed.get("delivery_location", ""),
+        "final_destination":  (cp.final_destination if cp else None) or confirmed.get("final_destination", ""),
+        # 품목 정보: SA 파싱 데이터
+        "part_number":        part_number,
+        "description":        (item.description if item and item.description else None) or confirmed.get("description", ""),
+        "quantity":           (pr.adjusted_quantity or pr.quantity) if pr else "",
+        "unit":               confirmed.get("unit", "EA"),
+        "po_number":          confirmed.get("po_number", ""),
+        # RAN: 생산의뢰서에서 부여된 내부 RAN 사용 (SA Call Number 무시)
+        "ran_number":         pr.ran_number if pr and pr.ran_number else "",
+        # 단가·중량: 품목마스터 우선, 없으면 confirmed_data 폴백
+        "unit_price":         (float(item.unit_price) if item and item.unit_price else None) or confirmed.get("unit_price"),
+        "net_weight_per_pc":  float(item.net_weight_per_pc) if item and item.net_weight_per_pc else None,
+        "pcs_per_box":        item.pcs_per_box if item else None,
     }
 
     excel_bytes = build_invoice(data) if doc.doc_type == "invoice" else build_packing_list(data)
