@@ -166,7 +166,7 @@ def build_invoice(data: dict) -> bytes:
 
     # 서류 번호 / 날짜
     ws["H2"] = data.get("doc_number", "")
-    ws["K2"] = date.today()
+    ws["K2"] = date.today().strftime("%Y-%m-%d")
 
     # 납품처 (수신처) — 행 4~11
     addr = _address_lines(
@@ -214,7 +214,7 @@ def build_packing_list(data: dict) -> bytes:
 
     # 서류 번호 / 날짜
     ws["H2"] = data.get("doc_number", "")
-    ws["K2"] = date.today()
+    ws["K2"] = date.today().strftime("%Y-%m-%d")
 
     # 납품처 — 행 4~11
     addr = _address_lines(
