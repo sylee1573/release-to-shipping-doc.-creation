@@ -18,23 +18,27 @@ logger = logging.getLogger(__name__)
 
 
 async def _run_migrations():
-    """서버 시작 시 migrations/ SQL 파일을 순서대로 실행 (IF NOT EXISTS 멱등)."""
+    """서버 시작 시 migrations/ SQL 파일을 구문별로 실행 (멱등)."""
     migration_dir = Path(__file__).parent / "migrations"
-    files = [
-        "init.sql",
-        "005_invoice_warning3.sql",
-    ]
-    async with engine.begin() as conn:
-        for fname in files:
-            fpath = migration_dir / fname
-            if not fpath.exists():
-                continue
-            sql = fpath.read_text(encoding="utf-8")
+    files = ["init.sql", "005_invoice_warning3.sql"]
+
+    for fname in files:
+        fpath = migration_dir / fname
+        if not fpath.exists():
+            continue
+        sql = fpath.read_text(encoding="utf-8")
+        # 주석 제거 후 ';' 기준으로 분리
+        stmts = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
+        ok = skipped = 0
+        for stmt in stmts:
             try:
-                await conn.exec_driver_sql(sql)
-                logger.info("migration OK: %s", fname)
+                async with engine.begin() as conn:
+                    await conn.exec_driver_sql(stmt)
+                ok += 1
             except Exception as e:
-                logger.warning("migration skip %s: %s", fname, e)
+                skipped += 1
+                logger.debug("migration %s stmt skipped: %s", fname, e)
+        logger.info("migration %s: %d ok, %d skipped", fname, ok, skipped)
 
 
 @asynccontextmanager

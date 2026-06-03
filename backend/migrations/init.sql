@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_tenant ON orders (tenant_id);
 
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS orders_tenant_isolation ON orders
+DROP POLICY IF EXISTS orders_tenant_isolation ON orders;
+CREATE POLICY orders_tenant_isolation ON orders
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
 
 -- ── production_requests ───────────────────────────────────────────────
@@ -76,7 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_production_requests_tenant ON production_requests
 CREATE INDEX IF NOT EXISTS idx_production_requests_order  ON production_requests (order_id);
 
 ALTER TABLE production_requests ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS production_requests_tenant_isolation ON production_requests
+DROP POLICY IF EXISTS production_requests_tenant_isolation ON production_requests;
+CREATE POLICY production_requests_tenant_isolation ON production_requests
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
 
 -- ── shipment_docs ─────────────────────────────────────────────────────
@@ -95,7 +97,8 @@ CREATE TABLE IF NOT EXISTS shipment_docs (
 CREATE INDEX IF NOT EXISTS idx_shipment_docs_tenant ON shipment_docs (tenant_id);
 
 ALTER TABLE shipment_docs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS shipment_docs_tenant_isolation ON shipment_docs
+DROP POLICY IF EXISTS shipment_docs_tenant_isolation ON shipment_docs;
+CREATE POLICY shipment_docs_tenant_isolation ON shipment_docs
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
 
 -- ── invoices ──────────────────────────────────────────────────────────
@@ -118,7 +121,8 @@ CREATE TABLE IF NOT EXISTS invoices (
 CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON invoices (tenant_id);
 
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS invoices_tenant_isolation ON invoices
+DROP POLICY IF EXISTS invoices_tenant_isolation ON invoices;
+CREATE POLICY invoices_tenant_isolation ON invoices
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
 
 -- ── parsing_templates ─────────────────────────────────────────────────
@@ -134,7 +138,8 @@ CREATE TABLE IF NOT EXISTS parsing_templates (
 );
 
 ALTER TABLE parsing_templates ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS parsing_templates_tenant_isolation ON parsing_templates
+DROP POLICY IF EXISTS parsing_templates_tenant_isolation ON parsing_templates;
+CREATE POLICY parsing_templates_tenant_isolation ON parsing_templates
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
 
 -- ── customer_profiles ─────────────────────────────────────────────────
@@ -158,7 +163,8 @@ CREATE INDEX IF NOT EXISTS idx_customer_profiles_tenant_name
     ON customer_profiles (tenant_id, customer_name);
 
 ALTER TABLE customer_profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS customer_profiles_tenant_isolation ON customer_profiles
+DROP POLICY IF EXISTS customer_profiles_tenant_isolation ON customer_profiles;
+CREATE POLICY customer_profiles_tenant_isolation ON customer_profiles
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
 
 -- ── item_master ───────────────────────────────────────────────────────
@@ -185,7 +191,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_item_master_unique
     ON item_master (tenant_id, customer_name, part_number) WHERE is_active = TRUE;
 
 ALTER TABLE item_master ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS item_master_tenant_isolation ON item_master
+DROP POLICY IF EXISTS item_master_tenant_isolation ON item_master;
+CREATE POLICY item_master_tenant_isolation ON item_master
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
 
 -- ── holiday_calendar ──────────────────────────────────────────────────
@@ -202,5 +209,6 @@ CREATE INDEX IF NOT EXISTS idx_holiday_calendar_tenant_week
     ON holiday_calendar (tenant_id, week_start_date);
 
 ALTER TABLE holiday_calendar ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS holiday_calendar_tenant_isolation ON holiday_calendar
+DROP POLICY IF EXISTS holiday_calendar_tenant_isolation ON holiday_calendar;
+CREATE POLICY holiday_calendar_tenant_isolation ON holiday_calendar
     USING (tenant_id = current_setting('app.tenant_id', TRUE)::UUID);
