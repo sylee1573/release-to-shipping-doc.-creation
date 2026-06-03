@@ -80,13 +80,15 @@ def _calc_dates(delivery_date: date, cp) -> tuple[date, date, date]:
     return sailing_date, production_end, production_start
 
 
-def _to_response(pr: ProductionRequest, customer_name: str | None = None) -> dict:
+def _to_response(pr: ProductionRequest, customer_name: str | None = None,
+                 part_number: str | None = None) -> dict:
     return {
         "id": pr.id,
         "tenant_id": pr.tenant_id,
         "order_id": pr.order_id,
         "request_number": pr.request_number,
         "customer_name": customer_name,
+        "part_number": part_number,
         "sailing_date": pr.sailing_date,
         "production_start_date": pr.production_start_date,
         "production_end_date": pr.production_end_date,
@@ -112,7 +114,7 @@ async def list_production_requests(
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
-        select(ProductionRequest, Order.customer_name)
+        select(ProductionRequest, Order.customer_name, Order.confirmed_data)
         .join(Order, ProductionRequest.order_id == Order.id)
         .where(ProductionRequest.tenant_id == user.tenant_id)
     )
@@ -120,7 +122,13 @@ async def list_production_requests(
         stmt = stmt.where(ProductionRequest.status == status)
     stmt = stmt.order_by(ProductionRequest.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
-    return [ProductionResponse(**_to_response(pr, cname)) for pr, cname in result.all()]
+    return [
+        ProductionResponse(**_to_response(
+            pr, cname,
+            str((conf or {}).get("part_number", "")) if conf else "",
+        ))
+        for pr, cname, conf in result.all()
+    ]
 
 
 @router.get("/{pr_id}", response_model=ProductionResponse)
@@ -130,15 +138,16 @@ async def get_production_request(
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
-        select(ProductionRequest, Order.customer_name)
+        select(ProductionRequest, Order.customer_name, Order.confirmed_data)
         .join(Order, ProductionRequest.order_id == Order.id)
         .where(ProductionRequest.id == pr_id, ProductionRequest.tenant_id == user.tenant_id)
     )
     row = (await db.execute(stmt)).first()
     if not row:
         raise HTTPException(status_code=404, detail="생산의뢰서를 찾을 수 없습니다")
-    pr, customer_name = row
-    return ProductionResponse(**_to_response(pr, customer_name))
+    pr, customer_name, conf = row
+    pn = str((conf or {}).get("part_number", "")) if conf else ""
+    return ProductionResponse(**_to_response(pr, customer_name, pn))
 
 
 @router.post("/", response_model=ProductionResponse, status_code=201)
@@ -398,16 +407,18 @@ async def generate_weekly_plan(
 
         # 선적일 역산
         sailing, prod_end, prod_start = _calc_dates(d_date, cp)
+        sailing_week_mon = _week_monday(sailing)
         is_hol = week_start in holidays
         slots.append({
-            "slot":           len(slots) + 1,
-            "week_start":     str(week_start),
-            "delivery_date":  str(d_date),
-            "quantity":       qty,
-            "sailing_date":   str(sailing),
-            "production_end": str(prod_end),
-            "is_holiday":     is_hol,
-            "holiday_reason": holidays.get(week_start),
+            "slot":                len(slots) + 1,
+            "week_start":          str(week_start),
+            "sailing_week_monday": str(sailing_week_mon),
+            "delivery_date":       str(d_date),
+            "quantity":            qty,
+            "sailing_date":        str(sailing),
+            "production_end":      str(prod_end),
+            "is_holiday":          is_hol,
+            "holiday_reason":      holidays.get(week_start),
         })
         if len(slots) >= 4:
             break

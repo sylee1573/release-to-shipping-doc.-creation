@@ -21,4 +21,10 @@ export const ordersApi = {
 
   confirm: (id: string, confirmedData: Record<string, string | number>) =>
     api.post<Order>(`/api/v1/orders/${id}/confirm`, { confirmed_data: confirmedData }),
+
+  autoConfirm: (id: string) =>
+    api.post<{ order_id: string; warnings: Array<{ field: string; label: string; confidence: number; value: string }> }>(
+      `/api/v1/orders/${id}/auto-confirm`,
+      {}
+    ),
 }

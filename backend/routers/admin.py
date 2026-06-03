@@ -287,14 +287,20 @@ class ItemMasterCreate(BaseModel):
     description: str | None = None
     unit_price: float | None = None
     net_weight_per_pc: float | None = None
+    gross_weight_per_pc: float | None = None
     pcs_per_box: int | None = None
+    boxes_per_pallet: int | None = None
+    cbm_per_pallet: float | None = None
 
 
 class ItemMasterUpdate(BaseModel):
     description: str | None = None
     unit_price: float | None = None
     net_weight_per_pc: float | None = None
+    gross_weight_per_pc: float | None = None
     pcs_per_box: int | None = None
+    boxes_per_pallet: int | None = None
+    cbm_per_pallet: float | None = None
 
 
 class ItemMasterResponse(BaseModel):
@@ -305,7 +311,10 @@ class ItemMasterResponse(BaseModel):
     description: str | None
     unit_price: float | None
     net_weight_per_pc: float | None
+    gross_weight_per_pc: float | None
     pcs_per_box: int | None
+    boxes_per_pallet: int | None
+    cbm_per_pallet: float | None
     ran_last: int
     is_active: bool
     created_at: datetime
@@ -341,7 +350,10 @@ async def create_item_master(
         description=body.description,
         unit_price=body.unit_price,
         net_weight_per_pc=body.net_weight_per_pc,
+        gross_weight_per_pc=body.gross_weight_per_pc,
         pcs_per_box=body.pcs_per_box,
+        boxes_per_pallet=body.boxes_per_pallet,
+        cbm_per_pallet=body.cbm_per_pallet,
         ran_last=0,
     )
     db.add(item)
@@ -366,8 +378,14 @@ async def update_item_master(
         item.unit_price = body.unit_price
     if body.net_weight_per_pc is not None:
         item.net_weight_per_pc = body.net_weight_per_pc
+    if body.gross_weight_per_pc is not None:
+        item.gross_weight_per_pc = body.gross_weight_per_pc
     if body.pcs_per_box is not None:
         item.pcs_per_box = body.pcs_per_box
+    if body.boxes_per_pallet is not None:
+        item.boxes_per_pallet = body.boxes_per_pallet
+    if body.cbm_per_pallet is not None:
+        item.cbm_per_pallet = body.cbm_per_pallet
     await db.commit()
     await db.refresh(item)
     return item

@@ -10,7 +10,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_PATH = Path(__file__).parent.parent.parent / "ship doc  ex" / "KCR26-06.xlsx"
+TEMPLATE_PATH = Path(__file__).parent.parent.parent / "inv.packing_ex" / "KCR26-06.xlsx"
 
 SENDER_NAME = "KYUNG CHANG PRECISION IND. CO., LTD."
 SENDER_ADDRESS = "149 Gukgasandan-daero 33-gil, Guji-myeon, Dalseong-gun, Daegu"
@@ -83,6 +83,43 @@ def _keep_only(wb, sheet_name: str):
         if sname != sheet_name:
             wb.remove(wb[sname])
 
+
+def _apply_total_style(ws, row: int, n_cols: int):
+    """TOTAL 행: 상단 구분선 + 수직 컬럼선, 흰 배경, bold."""
+    no   = Side(style=None)
+    thin = Side(style="thin")
+    med  = Side(style="medium")
+    white = PatternFill("solid", fgColor="FFFFFF")
+
+    for c in range(1, n_cols + 1):
+        cell = ws.cell(row=row, column=c)
+        cell.fill   = white
+        cell.border = Border(left=thin if c == 1 else no, right=thin, top=med, bottom=thin)
+        cell.font   = Font(name="Arial", size=9, bold=True)
+        if c in (8, 9, 10, 11, 12, 13):
+            cell.alignment = Alignment(horizontal="right", vertical="center")
+        elif c in (14, 15):
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        else:
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+
+def _apply_clean_data_rows(ws, start_row: int, count: int, n_cols: int):
+    """데이터 행: 수직 컬럼선만, 수평선 없음, 흰 배경, bold."""
+    no    = Side(style=None)
+    thin  = Side(style="thin")
+    white = PatternFill("solid", fgColor="FFFFFF")
+
+    for i in range(count):
+        row      = start_row + i
+        top_side = thin if i == 0 else no  # 첫 행만 헤더와 구분선
+        for col in range(1, n_cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.fill   = white
+            cell.border = Border(left=thin if col == 1 else no, right=thin, top=top_side, bottom=no)
+            f = cell.font
+            cell.font   = Font(name=f.name or "Arial", size=f.size or 9, bold=True)
+
 def _to_bytes(wb) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
@@ -90,28 +127,43 @@ def _to_bytes(wb) -> bytes:
 
 
 def _write_header(ws, sheet_type: str, header: dict):
-    """IN(Invoice) 또는 PA(Packing List) 시트 공통 헤더 채우기."""
-    ws["H2"] = header.get("doc_number", "")
-    ws["K2"] = date.today().strftime("%Y-%m-%d")
+    """
+    KCR26-06.xlsx 기준 헤더 셀 채우기.
+    IN / PA 시트 셀 위치:
+      H2  (col 8,  row 2)  = Invoice/Doc No.
+      K2  (col 11, row 2)  = 발행일  (병합 K2:M2)
+      A4~A9                = Consignee 주소 (6줄)
+      I16 / H16            = SA# (IN: col 9, PA: col 8)
+      D18 (col 4,  row 18) = Final Destination  (병합 D18:F18)
+      I18 / H18            = Tax ID (IN: col 9, PA: col 8)
+      D23 (col 4,  row 23) = Sailing Date  (병합 D23:F23)
+    """
+    # 서류 번호·발행일
+    ws.cell(row=2, column=8).value  = header.get("doc_number", "")
+    ws.cell(row=2, column=11).value = date.today()
 
+    # 수신처 주소 (rows 4~9, 최대 6줄)
     addr = _address_lines(
         header.get("ship_to_name", header.get("customer_name", "")),
         header.get("delivery_location", ""),
+        max_lines=6,
     )
-    for i, row_num in enumerate(range(4, 12)):
+    for i, row_num in enumerate(range(4, 10)):
         ws.cell(row=row_num, column=1).value = addr[i] if i < len(addr) else ""
 
-    # 선적일자 (Row 22, "6. Sailing Date" 아래)
-    ws["D22"] = header.get("sailing_date", "")
+    # SA# — IN: I16 (col=9), PA: H16 (col=8)
+    sa_col = 9 if sheet_type == "invoice" else 8
+    ws.cell(row=16, column=sa_col).value = f"  SA# : {header.get('po_number', '')}"
 
-    if sheet_type == "invoice":
-        ws["I16"] = f"  SA# : {header.get('po_number', '')}"
-        ws["I18"] = f"  Tax ID : {header.get('tax_id', '')}" if header.get("tax_id") else ""
-        ws["D18"] = header.get("final_destination", "")
-    else:  # packing
-        ws["H16"] = f"  SA# : {header.get('po_number', '')}"
-        ws["H18"] = f"  Tax ID : {header.get('tax_id', '')}" if header.get("tax_id") else ""
-        ws["D18"] = header.get("final_destination", "")
+    # Final Destination — D18 (병합 D18:F18), 공통
+    ws.cell(row=18, column=4).value = header.get("final_destination", "")
+
+    # Tax ID — 빈 값으로 초기화 (IN: I18, PA: H18)
+    tax_col = 9 if sheet_type == "invoice" else 8
+    ws.cell(row=18, column=tax_col).value = None
+
+    # Sailing Date — D23 (병합 D23:F23), 공통
+    ws.cell(row=23, column=4).value = header.get("sailing_date", "")
 
 
 # ─── 생산의뢰서 (내부 문서 — 코드 기반) ─────────────────────
@@ -247,6 +299,8 @@ def build_invoice(header: dict, items: list[dict] | None = None) -> bytes:
     ws[f"A{total_row}"] = "TOTAL"
     ws[f"H{total_row}"] = total_qty
     ws[f"K{total_row}"] = round(total_ext, 2) if has_price else None
+    _apply_clean_data_rows(ws, DATA_START, len(items), 14)
+    _apply_total_style(ws, total_row, 14)
 
     _keep_only(wb, "IN")
     return _to_bytes(wb)
@@ -273,25 +327,37 @@ def build_packing_list(header: dict, items: list[dict] | None = None) -> bytes:
     _write_header(ws, "packing", header)
 
     DATA_START = 29
-    total_qty = 0
-    total_box = 0
-    total_net = 0.0
+    total_qty   = 0
+    total_box   = 0
+    total_net   = 0.0
     total_gross = 0.0
-    has_weight = False
+    total_cbm   = 0.0
+    has_weight  = False
+    has_cbm     = False
 
     for idx, item in enumerate(items):
         row = DATA_START + idx
-        qty = item.get("quantity", 0)
-        pcs_per_box = item.get("pcs_per_box") or 360
-        net_w = item.get("net_weight_per_pc") or 0
+        qty            = item.get("quantity", 0)
+        pcs_per_box    = item.get("pcs_per_box") or 360
+        boxes_per_plt  = item.get("boxes_per_pallet")
+        net_w          = item.get("net_weight_per_pc") or 0
+        gross_w        = item.get("gross_weight_per_pc")
+        cbm_per_pallet = item.get("cbm_per_pallet")
 
         try:
-            qty_num = int(qty)
+            qty_num   = int(qty)
             box_count = math.ceil(qty_num / int(pcs_per_box))
-            net_total   = round(float(net_w) * qty_num, 3) if net_w else ""
-            gross_total = round(float(net_total) * 1.023, 3) if net_total != "" else ""
+            plt_count = math.ceil(box_count / int(boxes_per_plt)) if boxes_per_plt else ""
+            net_total = round(float(net_w) * qty_num, 3) if net_w else ""
+            if gross_w:
+                gross_total = round(float(gross_w) * qty_num, 3)
+            elif net_total != "":
+                gross_total = round(float(net_total) * 1.023, 3)
+            else:
+                gross_total = ""
+            cbm_total = round(float(cbm_per_pallet) * int(plt_count), 4) if (cbm_per_pallet and plt_count != "") else ""
         except (ValueError, TypeError):
-            qty_num, box_count, net_total, gross_total = qty, "", "", ""
+            qty_num, box_count, net_total, gross_total, cbm_total = qty, "", "", "", ""
 
         ws[f"A{row}"] = item.get("part_number", "")
         ws[f"E{row}"] = item.get("description", "")
@@ -299,7 +365,7 @@ def build_packing_list(header: dict, items: list[dict] | None = None) -> bytes:
         ws[f"J{row}"] = box_count
         ws[f"K{row}"] = net_total   if net_total   != "" else None
         ws[f"L{row}"] = gross_total if gross_total != "" else None
-        ws[f"M{row}"] = None  # CBM — 팔레트 치수 필요
+        ws[f"M{row}"] = cbm_total   if cbm_total   != "" else None
         ws[f"N{row}"] = item.get("po_number", header.get("po_number", ""))
         ws[f"O{row}"] = item.get("ran_number", "")
 
@@ -311,6 +377,9 @@ def build_packing_list(header: dict, items: list[dict] | None = None) -> bytes:
             total_net   += float(net_total)
             total_gross += float(gross_total)
             has_weight = True
+        if cbm_total != "":
+            total_cbm += float(cbm_total)
+            has_cbm = True
 
     # TOTAL 행
     total_row = DATA_START + len(items)
@@ -319,6 +388,9 @@ def build_packing_list(header: dict, items: list[dict] | None = None) -> bytes:
     ws[f"J{total_row}"] = total_box
     ws[f"K{total_row}"] = round(total_net,   3) if has_weight else None
     ws[f"L{total_row}"] = round(total_gross, 3) if has_weight else None
+    ws[f"M{total_row}"] = round(total_cbm,   4) if has_cbm   else None
+    _apply_clean_data_rows(ws, DATA_START, len(items), 15)
+    _apply_total_style(ws, total_row, 15)
 
     _keep_only(wb, "PA")
     return _to_bytes(wb)

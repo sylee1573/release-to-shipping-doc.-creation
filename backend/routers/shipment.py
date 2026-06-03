@@ -159,14 +159,17 @@ async def download_shipment_doc(
         item_master = await _get_item_for_pr(db, user.tenant_id, pn)
 
         items.append({
-            "part_number":      pn,
-            "description":      (item_master.description if item_master and item_master.description else None) or conf.get("description", ""),
-            "quantity":         (pr.adjusted_quantity or pr.quantity) if pr else "",
-            "unit_price":       (float(item_master.unit_price) if item_master and item_master.unit_price else None) or conf.get("unit_price"),
+            "part_number":       pn,
+            "description":       (item_master.description if item_master and item_master.description else None) or conf.get("description", ""),
+            "quantity":          (pr.adjusted_quantity or pr.quantity) if pr else "",
+            "unit_price":        (float(item_master.unit_price) if item_master and item_master.unit_price else None) or conf.get("unit_price"),
             "net_weight_per_pc": float(item_master.net_weight_per_pc) if item_master and item_master.net_weight_per_pc else None,
-            "pcs_per_box":      item_master.pcs_per_box if item_master else None,
-            "po_number":        conf.get("po_number", header["po_number"]),
-            "ran_number":       pr.ran_number if pr and pr.ran_number else "",
+            "gross_weight_per_pc": float(item_master.gross_weight_per_pc) if item_master and item_master.gross_weight_per_pc else None,
+            "pcs_per_box":       item_master.pcs_per_box if item_master else None,
+            "boxes_per_pallet":  item_master.boxes_per_pallet if item_master else None,
+            "cbm_per_pallet":       float(item_master.cbm_per_pallet) if item_master and item_master.cbm_per_pallet else None,
+            "po_number":         conf.get("po_number", header["po_number"]),
+            "ran_number":        pr.ran_number if pr and pr.ran_number else "",
         })
 
     excel_bytes = build_invoice(header, items) if doc.doc_type == "invoice" else build_packing_list(header, items)

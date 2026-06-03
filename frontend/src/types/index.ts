@@ -39,6 +39,7 @@ export interface ProductionRequest {
   request_number: string | null
   customer_name: string | null
   sailing_date: string | null
+  part_number: string | null
   production_start_date: string | null
   production_end_date: string | null
   quantity: number | null

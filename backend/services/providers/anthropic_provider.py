@@ -12,15 +12,15 @@ logger = logging.getLogger(__name__)
 _PARSE_SYSTEM = """당신은 자동차 부품사 발주서 전문 파서입니다. 발주서 텍스트에서 필드를 추출해 JSON으로 반환합니다.
 
 필수 추출 필드:
-- customer_code: 발주처 코드 또는 회사명
+- customer_code: 발주처 코드 또는 회사명 (이 문서를 발행한 외국 바이어; 우리 한국 공급사 이름이 아님)
 - part_number: 품번 (Material / P.N. / Item No.)
 - description: 품목 설명 (예: BRACKET-SEC'D AIR INJN)
 - quantity: 가장 가까운 미래 납기의 Volume (숫자만; Progress/CUM 제외)
 - unit: 단위 (항상 "EA"로 통일)
 - delivery_date: 가장 가까운 납기일 (YYYY-MM-DD; DD.MM.YYYY → 변환 필수)
-- delivery_location: 납품처 전체 주소 (회사명 + 주소)
+- delivery_location: 납품처 전체 주소 (물건을 받을 장소; 회사명 + 주소)
 - po_number: 발주번호 (Scheduling Agreement / S/A No. / P.O. Number)
-- ship_to_name: 납품받는 회사명
+- ship_to_name: 물건을 주문하고 받는 외국 바이어 회사명 (문서를 발행한 회사; 우리 한국 공급사 이름이 절대 아님. 문서 상단 또는 Ship To 란에 표기됨)
 - unit_price: 단가 (USD; 문서에 없으면 null)
 
 delivery_schedule (최상위 필드, fields 밖에 위치):

@@ -20,7 +20,10 @@ class ItemMaster(Base):
     description: Mapped[str | None] = mapped_column(String(500))      # 표준 품목 설명
     unit_price: Mapped[float | None] = mapped_column(Numeric(14, 6))  # 단가 (USD)
     net_weight_per_pc: Mapped[float | None] = mapped_column(Numeric(12, 6))  # 개당 순중량 (kg)
+    gross_weight_per_pc: Mapped[float | None] = mapped_column(Numeric(12, 6))  # 개당 gross 중량 (kg)
     pcs_per_box: Mapped[int | None] = mapped_column(Integer)           # 박스당 수량
+    boxes_per_pallet: Mapped[int | None] = mapped_column(Integer)      # 파레트당 박스 수
+    cbm_per_pallet: Mapped[float | None] = mapped_column(Numeric(10, 6))  # 박스당 CBM (m³)
 
     # 품번별 RAN 카운터 (0→첫 발급 시 10, 이후 10씩 증가)
     ran_last: Mapped[int] = mapped_column(Integer, default=0)
