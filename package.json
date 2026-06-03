@@ -2,7 +2,7 @@
   "name": "order-automation",
   "version": "1.0.0",
   "scripts": {
-    "build": "sh -c 'cd frontend && npm install && npm run build'",
-    "vercel-build": "sh -c 'cd frontend && npm install && npm run build'"
+    "build": "node build.js",
+    "vercel-build": "node build.js"
   }
 }
