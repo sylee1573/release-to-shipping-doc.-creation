@@ -22,6 +22,7 @@ class Invoice(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/paid/overdue/suspended
     warning_1_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # D+30
     warning_2_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # D+37
+    warning_3_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # D+44 중단예고
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="invoices")

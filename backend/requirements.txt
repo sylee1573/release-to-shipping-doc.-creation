@@ -16,6 +16,7 @@ google-generativeai==0.8.3
 httpx==0.28.0
 apscheduler==3.10.4
 sentry-sdk[fastapi]==2.19.0
+xlrd==2.0.1
 python-dotenv==1.0.1
 pytest==8.3.4
 pytest-asyncio==0.24.0

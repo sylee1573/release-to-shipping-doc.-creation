@@ -33,7 +33,7 @@ async def check_overdue_invoices():
                 )
                 inv.status = "suspended"
 
-            elif days_overdue >= 44 and not inv.warning_2_sent_at:
+            elif days_overdue >= 44 and not inv.warning_3_sent_at:
                 # 중단 예고 (D+44)
                 tenant = await session.get(Tenant, inv.tenant_id)
                 if tenant:
@@ -42,6 +42,7 @@ async def check_overdue_invoices():
                         "SUSPEND_TOMORROW",
                         {"company": tenant.name},
                     )
+                    inv.warning_3_sent_at = date.today()
 
             elif days_overdue >= 37 and not inv.warning_2_sent_at:
                 # 2차 경고 (D+37)

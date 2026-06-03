@@ -220,7 +220,7 @@ function CustomerProfilesTab() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (cp: CustomerProfile) => adminApi.updateCustomerProfile(cp.id, { date_type: form.date_type, ship_to_name: form.ship_to_name || undefined, ship_to_address: form.ship_to_address || undefined, final_destination: form.final_destination || undefined, shipping_prep_days: form.shipping_prep_days, production_lead_days: form.production_lead_days }),
+    mutationFn: (cp: CustomerProfile) => adminApi.updateCustomerProfile(cp.id, { date_type: form.date_type, ship_to_name: form.ship_to_name || undefined, ship_to_address: form.ship_to_address || undefined, final_destination: form.final_destination || undefined, sea_transit_days: form.sea_transit_days, shipping_prep_days: form.shipping_prep_days, production_lead_days: form.production_lead_days }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['customer-profiles'] }); setEditing(null) },
   })
 
