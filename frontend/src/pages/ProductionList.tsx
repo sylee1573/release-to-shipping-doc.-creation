@@ -103,9 +103,23 @@ export default function ProductionList() {
   const normalizeCustomer = (name: string | null | undefined) =>
     (name ?? '').trim().toUpperCase() || '(고객사 미상)'
 
+  // fourMondays는 return 안에서도 동일하게 참조하므로 여기서 미리 계산
+  const fourMondays = getFourWeekMondays()
+
+  // 선적주 1(다음 주 월요일)에 선적 있는 PR만 반환
+  const slot1PRs = checkedPRs.filter((pr) =>
+    (pr.weekly_schedule ?? []).some((s) => s.sailing_week_monday === fourMondays[0])
+  )
+
+  // 선택됐으나 선적주 1 없는 PR (모달 안내용)
+  const excludedPRs = checkedPRs.filter((pr) =>
+    !(pr.weekly_schedule ?? []).some((s) => s.sailing_week_monday === fourMondays[0])
+  )
+
   const createDocsMutation = useMutation({
     mutationFn: async () => {
-      const grouped = checkedPRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
+      // 선적주 1 기준으로만 그룹핑
+      const grouped = slot1PRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
         const key = normalizeCustomer(pr.customer_name)
         if (!acc[key]) acc[key] = []
         acc[key].push(pr)
@@ -157,8 +171,6 @@ export default function ProductionList() {
       </div>
     )
   }
-
-  const fourMondays = getFourWeekMondays()
 
   return (
     <div>
@@ -309,26 +321,49 @@ export default function ProductionList() {
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl">
             <div className="px-6 pt-6 pb-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Invoice / Packing List 생성</h2>
-              <p className="text-xs text-gray-500 mt-0.5">고객사별 자동 분류</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                선적주 1 ({formatWeekHeader(fourMondays[0])}) 기준 · 고객사별 분류
+              </p>
             </div>
-            <div className="px-6 py-4 max-h-52 overflow-y-auto space-y-2">
-              {Object.entries(
-                checkedPRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
-                  const key = normalizeCustomer(pr.customer_name)
-                  if (!acc[key]) acc[key] = []
-                  acc[key].push(pr)
-                  return acc
-                }, {})
-              ).map(([customer, prs]) => (
-                <div key={customer} className="border border-gray-200 rounded-lg px-3 py-2.5">
-                  <p className="text-xs font-semibold text-gray-900 mb-1">{customer}</p>
-                  {prs.map((pr) => (
-                    <p key={pr.id} className="text-xs text-gray-500">
-                      {pr.part_number} · {pr.weekly_schedule?.[0]?.quantity ?? 0}EA · RAN#{pr.ran_number}
+            <div className="px-6 py-4 max-h-64 overflow-y-auto space-y-2">
+              {/* 선적주 1 포함 PR — 생성 대상 */}
+              {slot1PRs.length === 0 ? (
+                <p className="text-xs text-red-500 text-center py-2">
+                  선택된 항목 중 선적주 1에 해당하는 제품이 없습니다.
+                </p>
+              ) : (
+                Object.entries(
+                  slot1PRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
+                    const key = normalizeCustomer(pr.customer_name)
+                    if (!acc[key]) acc[key] = []
+                    acc[key].push(pr)
+                    return acc
+                  }, {})
+                ).map(([customer, prs]) => (
+                  <div key={customer} className="border border-indigo-200 rounded-lg px-3 py-2.5 bg-indigo-50/40">
+                    <p className="text-xs font-semibold text-gray-900 mb-1">{customer}</p>
+                    {prs.map((pr) => {
+                      const slot1 = (pr.weekly_schedule ?? []).find((s) => s.sailing_week_monday === fourMondays[0])
+                      return (
+                        <p key={pr.id} className="text-xs text-gray-600">
+                          {pr.part_number} · {(slot1?.quantity ?? 0).toLocaleString()}EA · RAN#{pr.ran_number}
+                        </p>
+                      )
+                    })}
+                  </div>
+                ))
+              )}
+              {/* 선적주 1 없는 PR — 제외 안내 */}
+              {excludedPRs.length > 0 && (
+                <div className="border border-gray-200 rounded-lg px-3 py-2 bg-gray-50">
+                  <p className="text-[10px] text-gray-400 font-semibold mb-1">선적주 1 없음 — 제외됨</p>
+                  {excludedPRs.map((pr) => (
+                    <p key={pr.id} className="text-[10px] text-gray-400 line-through">
+                      {pr.part_number} ({normalizeCustomer(pr.customer_name)})
                     </p>
                   ))}
                 </div>
-              ))}
+              )}
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex gap-2 justify-end">
               <button
@@ -340,7 +375,7 @@ export default function ProductionList() {
               </button>
               <button
                 onClick={() => createDocsMutation.mutate()}
-                disabled={createDocsMutation.isPending}
+                disabled={createDocsMutation.isPending || slot1PRs.length === 0}
                 className="btn-primary text-sm min-w-[96px]"
               >
                 {createDocsMutation.isPending ? '생성 중...' : 'Invoice/PL 생성'}
