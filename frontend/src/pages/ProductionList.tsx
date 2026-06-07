@@ -24,13 +24,37 @@ const NEXT_STATUS_LABEL: Record<string, string> = {
   draft: '확정', confirmed: '생산시작', in_production: '완료',
 }
 
-function sailingWeekMonday(sailingDate: string): string {
-  const d = new Date(sailingDate + 'T00:00:00Z')
-  const dow = d.getUTCDay()
-  const toMonday = dow === 0 ? -6 : 1 - dow
-  const monday = new Date(d)
-  monday.setUTCDate(d.getUTCDate() + toMonday)
-  return `${monday.getUTCMonth() + 1}/${String(monday.getUTCDate()).padStart(2, '0')}(월)`
+// isoDate에 days를 더한 YYYY-MM-DD 반환 (UTC 기준)
+function addDaysISO(isoDate: string, days: number): string {
+  const d = new Date(isoDate + 'T12:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+// 해당 날짜가 속한 주의 월요일 반환 (YYYY-MM-DD, UTC 기준)
+function weekMondayISO(isoDate: string): string {
+  const d = new Date(isoDate + 'T12:00:00Z')
+  const dow = d.getUTCDay()  // 0=일, 1=월…6=토
+  const daysToMon = dow === 0 ? -6 : 1 - dow
+  return addDaysISO(isoDate, daysToMon)
+}
+
+// 오늘 기준 "다음 주 월요일"부터 4주 절대 날짜 (백엔드 next_monday 로직과 동일)
+function getFourWeekMondays(): string[] {
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const thisMon  = weekMondayISO(todayISO)
+  const nextMon  = addDaysISO(thisMon, 7)
+  return [0, 1, 2, 3].map((i) => addDaysISO(nextMon, i * 7))
+}
+
+function formatWeekHeader(isoDate: string): string {
+  const d = new Date(isoDate + 'T12:00:00Z')
+  return `${d.getUTCMonth() + 1}/${String(d.getUTCDate()).padStart(2, '0')}(월)`
+}
+
+function prDateLabel(isoString: string | null | undefined): string {
+  if (!isoString) return ''
+  return isoString.slice(0, 10)   // 'YYYY-MM-DD'
 }
 
 export default function ProductionList() {
@@ -40,6 +64,7 @@ export default function ProductionList() {
   const [showGenModal, setShowGenModal] = useState(false)
   const qc    = useQueryClient()
   const token = useAuthStore((s) => s.token)
+  const todayStr = new Date().toISOString().slice(0, 10)
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['production', statusFilter],
@@ -74,10 +99,14 @@ export default function ProductionList() {
     } catch { /* 다운로드 실패 무시 */ }
   }
 
+  // 고객사명 정규화: 대소문자·공백 차이로 같은 고객이 다르게 묶이는 것 방지
+  const normalizeCustomer = (name: string | null | undefined) =>
+    (name ?? '').trim().toUpperCase() || '(고객사 미상)'
+
   const createDocsMutation = useMutation({
     mutationFn: async () => {
       const grouped = checkedPRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
-        const key = pr.customer_name ?? '(고객사 미상)'
+        const key = normalizeCustomer(pr.customer_name)
         if (!acc[key]) acc[key] = []
         acc[key].push(pr)
         return acc
@@ -113,28 +142,23 @@ export default function ProductionList() {
     URL.revokeObjectURL(a.href)
   }
 
-  const QtyCell = ({ pr, slotNum }: { pr: ProductionRequest; slotNum: number }) => {
-    const slots   = pr.weekly_schedule ?? []
-    const slotMap = Object.fromEntries(slots.map((s) => [s.slot, s]))
-    const slot    = slotMap[slotNum]
-    if (!slot) return <span className="text-gray-300">—</span>
+  // 해당 주(sailing_week_monday)에 선적 있을 때만 수량 표시 — 없으면 빈 셀
+  const QtyCell = ({ pr, weekMonday }: { pr: ProductionRequest; weekMonday: string }) => {
+    const slot = (pr.weekly_schedule ?? []).find((s) => s.sailing_week_monday === weekMonday)
+    if (!slot) return null
     if (slot.is_holiday) return (
       <span className="text-amber-600 text-[10px] font-medium">
         {slot.holiday_reason || '휴무'}
       </span>
     )
-    const dateLabel = slot.sailing_date ? sailingWeekMonday(slot.sailing_date) : ''
     return (
-      <div className="leading-snug">
-        {dateLabel && (
-          <div className="text-[9px] text-indigo-600 font-semibold">{dateLabel}</div>
-        )}
-        <div className="text-xs font-bold text-gray-900">
-          {(slot.quantity ?? 0).toLocaleString()}
-        </div>
+      <div className="text-xs font-bold text-gray-900">
+        {(slot.quantity ?? 0).toLocaleString()}
       </div>
     )
   }
+
+  const fourMondays = getFourWeekMondays()
 
   return (
     <div>
@@ -176,9 +200,10 @@ export default function ProductionList() {
                   <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-600">고객사</th>
                   <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-600">품번</th>
                   <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-600">의뢰서#</th>
-                  {['선적주 1', '선적주 2', '선적주 3', '선적주 4'].map((h) => (
-                    <th key={h} className="px-3 py-2.5 text-center text-[11px] font-semibold text-indigo-600 bg-indigo-50 whitespace-nowrap">
-                      {h}
+                  {fourMondays.map((mon, i) => (
+                    <th key={mon} className="px-3 py-2.5 text-center text-[11px] font-semibold text-indigo-600 bg-indigo-50 whitespace-nowrap">
+                      <div className="text-[9px] text-indigo-400 font-normal">{`선적주 ${i + 1}`}</div>
+                      <div>{formatWeekHeader(mon)}</div>
                     </th>
                   ))}
                   <th className="px-3 py-2.5 text-center text-[11px] font-semibold text-gray-600">RAN#</th>
@@ -187,9 +212,29 @@ export default function ProductionList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {items.map((pr) => {
+                {items.reduce<React.ReactNode[]>((rows, pr, idx) => {
+                  const dateLabel = prDateLabel(pr.created_at)
+                  const prevDate  = idx > 0 ? prDateLabel(items[idx - 1].created_at) : null
+                  const isToday   = dateLabel === todayStr
+
+                  // 날짜가 바뀌면 구분 헤더 삽입
+                  if (dateLabel !== prevDate) {
+                    rows.push(
+                      <tr key={`date-${dateLabel}`} className="bg-gray-100 border-t-2 border-gray-300">
+                        <td colSpan={10} className="px-3 py-1.5">
+                          <span className={`text-[11px] font-semibold ${isToday ? 'text-indigo-700' : 'text-gray-500'}`}>
+                            {isToday ? `오늘 (${dateLabel})` : dateLabel}
+                          </span>
+                          {isToday && (
+                            <span className="ml-2 text-[9px] bg-indigo-600 text-white px-1.5 py-0.5 rounded-full font-bold">NEW</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  }
+
                   const isChecked = checkedIds.has(pr.id)
-                  return (
+                  rows.push(
                     <tr key={pr.id} className={isChecked ? 'bg-blue-50' : 'bg-white hover:bg-gray-50 transition-colors'}>
                       <td className="px-2 py-2 text-center">
                         <input
@@ -208,9 +253,9 @@ export default function ProductionList() {
                       <td className="px-3 py-2 font-mono text-[10px] text-gray-500">
                         {pr.request_number || '—'}
                       </td>
-                      {[1, 2, 3, 4].map((slot) => (
-                        <td key={slot} className="px-2 py-2 text-center bg-indigo-50/40">
-                          <QtyCell pr={pr} slotNum={slot} />
+                      {fourMondays.map((mon) => (
+                        <td key={mon} className="px-2 py-2 text-center bg-indigo-50/40">
+                          <QtyCell pr={pr} weekMonday={mon} />
                         </td>
                       ))}
                       <td className="px-3 py-2 text-center font-mono text-[10px] font-semibold text-gray-700">
@@ -250,7 +295,8 @@ export default function ProductionList() {
                       </td>
                     </tr>
                   )
-                })}
+                  return rows
+                }, [])}
               </tbody>
             </table>
           </div>
@@ -268,7 +314,7 @@ export default function ProductionList() {
             <div className="px-6 py-4 max-h-52 overflow-y-auto space-y-2">
               {Object.entries(
                 checkedPRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
-                  const key = pr.customer_name ?? '(미상)'
+                  const key = normalizeCustomer(pr.customer_name)
                   if (!acc[key]) acc[key] = []
                   acc[key].push(pr)
                   return acc

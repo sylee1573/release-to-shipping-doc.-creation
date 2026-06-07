@@ -24,6 +24,7 @@ export interface Order {
 export interface WeeklySlot {
   slot: number
   week_start: string
+  sailing_week_monday: string
   delivery_date: string
   quantity: number
   sailing_date: string

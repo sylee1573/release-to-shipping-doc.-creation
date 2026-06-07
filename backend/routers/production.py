@@ -386,10 +386,13 @@ async def generate_weekly_plan(
     )
     holidays = {h.week_start_date: h.reason for h in holiday_result.scalars().all()}
 
-    # 납품일 기준 4주 슬롯 구성
-    today = date.today()
+    # 납품일 기준 4주 슬롯 구성 (선적주 1 = 다음 주 월요일 ~ 선적주 4 = 4주 후)
+    # 슬롯 번호 = 절대 주차 위치 (next_monday 기준 몇 주 뒤인가)
+    # 해당 주에 선적 없으면 빈 슬롯 — 수량 채우지 않음
+    today        = date.today()
+    next_monday  = _week_monday(today) + timedelta(weeks=1)
     slots = []
-    seen_weeks: set[date] = set()
+    seen_sailing_weeks: set[date] = set()
 
     for entry in sorted(delivery_schedule, key=lambda x: x["date"]):
         try:
@@ -397,20 +400,25 @@ async def generate_weekly_plan(
             qty    = int(entry["quantity"])
         except (ValueError, KeyError):
             continue
-        if d_date < today:
-            continue  # 이미 지난 날짜 스킵
+
+        # 선적일 역산 → 선적주 월요일
+        sailing, prod_end, _ = _calc_dates(d_date, cp)
+        sailing_week_mon     = _week_monday(sailing)
+
+        # 절대 주차 번호: next_monday 기준 0주 뒤 = slot 1, 1주 뒤 = slot 2 …
+        slot_num = (sailing_week_mon - next_monday).days // 7 + 1
+        if slot_num < 1 or slot_num > 4:
+            continue  # 4주 창 밖은 무시
+
+        # 동일 선적주 중복 스킵
+        if sailing_week_mon in seen_sailing_weeks:
+            continue
+        seen_sailing_weeks.add(sailing_week_mon)
 
         week_start = _week_monday(d_date)
-        if week_start in seen_weeks:
-            continue
-        seen_weeks.add(week_start)
-
-        # 선적일 역산
-        sailing, prod_end, prod_start = _calc_dates(d_date, cp)
-        sailing_week_mon = _week_monday(sailing)
-        is_hol = week_start in holidays
+        is_hol     = week_start in holidays
         slots.append({
-            "slot":                len(slots) + 1,
+            "slot":                slot_num,       # 절대 주차 (1~4)
             "week_start":          str(week_start),
             "sailing_week_monday": str(sailing_week_mon),
             "delivery_date":       str(d_date),
@@ -420,8 +428,6 @@ async def generate_weekly_plan(
             "is_holiday":          is_hol,
             "holiday_reason":      holidays.get(week_start),
         })
-        if len(slots) >= 4:
-            break
 
     if not slots:
         raise HTTPException(status_code=422, detail="유효한 미래 납품 일정이 없습니다.")
