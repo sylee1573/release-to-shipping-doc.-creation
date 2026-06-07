@@ -94,7 +94,7 @@ def _apply_total_style(ws, row: int, n_cols: int):
     for c in range(1, n_cols + 1):
         cell = ws.cell(row=row, column=c)
         cell.fill   = white
-        cell.border = Border(left=thin if c == 1 else no, right=thin, top=med, bottom=thin)
+        cell.border = Border()
         cell.font   = Font(name="Arial", size=9, bold=True)
         if c in (8, 9, 10, 11, 12, 13):
             cell.alignment = Alignment(horizontal="right", vertical="center")
@@ -105,18 +105,18 @@ def _apply_total_style(ws, row: int, n_cols: int):
 
 
 def _apply_clean_data_rows(ws, start_row: int, count: int, n_cols: int):
-    """데이터 행: 수직 컬럼선만, 수평선 없음, 흰 배경, bold."""
-    no    = Side(style=None)
-    thin  = Side(style="thin")
-    white = PatternFill("solid", fgColor="FFFFFF")
+    """데이터 행: 모든 라인 없음, 흰 배경, bold. 템플릿 원본 border 포함 제거."""
+    no_side   = Side(style=None)
+    no_border = Border(left=no_side, right=no_side, top=no_side, bottom=no_side)
+    white     = PatternFill("solid", fgColor="FFFFFF")
+    clear_cols = max(n_cols, 20)  # 템플릿 잔여 border 포함 충분히 제거
 
     for i in range(count):
-        row      = start_row + i
-        top_side = thin if i == 0 else no  # 첫 행만 헤더와 구분선
-        for col in range(1, n_cols + 1):
+        row = start_row + i
+        for col in range(1, clear_cols + 1):
             cell = ws.cell(row=row, column=col)
             cell.fill   = white
-            cell.border = Border(left=thin if col == 1 else no, right=thin, top=top_side, bottom=no)
+            cell.border = no_border
             f = cell.font
             cell.font   = Font(name=f.name or "Arial", size=f.size or 9, bold=True)
 

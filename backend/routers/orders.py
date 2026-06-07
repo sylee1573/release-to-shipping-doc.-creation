@@ -101,15 +101,29 @@ async def upload_order(
 
     # 2단계: AI 파싱 (텍스트만 전달 — 토큰 최소화)
     import traceback, logging
+    # 텍스트 추출 실패 시 AI 호출 금지 (빈 입력 → 예시 데이터 오염 방지)
+    if not raw_text or len(raw_text.strip()) < 20:
+        order.parse_status = "failed"
+        await db.commit()
+        await db.refresh(order)
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "EMPTY_TEXT", "message": "파일에서 텍스트를 추출할 수 없습니다. 스캔 PDF이거나 손상된 파일일 수 있습니다."},
+        )
     try:
         parsed = await ai_provider.parse_document(raw_text, template_hint)
         order.parsed_data = parsed
         order.parse_status = "done"
 
-        # 고객사명 추출
-        customer_code = parsed.get("fields", {}).get("customer_code", {}).get("value")
-        if customer_code:
-            order.customer_name = str(customer_code)
+        # 고객사명 추출: ship_to_name(납품처) 우선, 없으면 customer_code
+        # ship_to_name이 실제 Invoice 수신처이므로 그룹핑 기준으로 사용
+        fields = parsed.get("fields", {})
+        ship_to = str(fields.get("ship_to_name", {}).get("value", "") or "").strip()
+        customer_code = str(fields.get("customer_code", {}).get("value", "") or "").strip()
+        name = ship_to or customer_code
+        if name:
+            # 대소문자 정규화 (동일 고객사가 다른 케이스로 저장되는 것 방지)
+            order.customer_name = name.upper()
     except Exception as e:
         logging.error(f"[parse_error] {type(e).__name__}: {e}\n{traceback.format_exc()}")
         order.parse_status = "failed"

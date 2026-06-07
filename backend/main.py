@@ -20,15 +20,26 @@ logger = logging.getLogger(__name__)
 async def _run_migrations():
     """서버 시작 시 migrations/ SQL 파일을 구문별로 실행 (멱등)."""
     migration_dir = Path(__file__).parent / "migrations"
-    files = ["init.sql", "005_invoice_warning3.sql"]
+    files = [
+        "init.sql",
+        "002_customer_profile_item_master.sql",
+        "003_sailing_date_multi_item.sql",
+        "004_item_master_pallet_cbm.sql",
+        "005_invoice_warning3.sql",
+    ]
 
     for fname in files:
         fpath = migration_dir / fname
         if not fpath.exists():
             continue
         sql = fpath.read_text(encoding="utf-8")
-        # 주석 제거 후 ';' 기준으로 분리
-        stmts = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
+        # ';' 기준으로 분리 후 각 구문에서 앞쪽 주석 라인 제거
+        def _strip_comments(s: str) -> str:
+            lines = [ln for ln in s.splitlines() if not ln.strip().startswith("--")]
+            return "\n".join(lines).strip()
+
+        stmts = [_strip_comments(s) for s in sql.split(";")]
+        stmts = [s for s in stmts if s]
         ok = skipped = 0
         for stmt in stmts:
             try:
