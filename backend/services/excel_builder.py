@@ -1,6 +1,7 @@
 import io
 import logging
 import math
+import re
 from datetime import date
 from pathlib import Path
 
@@ -94,14 +95,15 @@ def _apply_total_style(ws, row: int, n_cols: int):
     for c in range(1, n_cols + 1):
         cell = ws.cell(row=row, column=c)
         cell.fill   = white
-        cell.border = Border()
-        cell.font   = Font(name="Arial", size=9, bold=True)
+        cell.border = Border(left=no, right=no, top=no, bottom=no)
+        cell.font   = Font(name="Arial", size=11, bold=True)
         if c in (8, 9, 10, 11, 12, 13):
             cell.alignment = Alignment(horizontal="right", vertical="center")
         elif c in (14, 15):
             cell.alignment = Alignment(horizontal="center", vertical="center")
         else:
             cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[row].height = 18
 
 
 def _apply_clean_data_rows(ws, start_row: int, count: int, n_cols: int):
@@ -113,12 +115,20 @@ def _apply_clean_data_rows(ws, start_row: int, count: int, n_cols: int):
 
     for i in range(count):
         row = start_row + i
+        ws.row_dimensions[row].height = 25
         for col in range(1, clear_cols + 1):
             cell = ws.cell(row=row, column=col)
             cell.fill   = white
             cell.border = no_border
-            f = cell.font
-            cell.font   = Font(name=f.name or "Arial", size=f.size or 9, bold=True)
+            cell.font   = Font(name="Arial", size=11, bold=True)
+
+def _ran_digits(value) -> int | str:
+    """RAN# 값에서 숫자만 추출 (예: 'RAN-001' → 1)."""
+    if not value:
+        return ""
+    m = re.search(r"\d+", str(value))
+    return int(m.group()) if m else value
+
 
 def _to_bytes(wb) -> bytes:
     buf = io.BytesIO()
@@ -286,7 +296,7 @@ def build_invoice(header: dict, items: list[dict] | None = None) -> bytes:
         ws[f"J{row}"] = up_num if up_num != "" else None
         ws[f"K{row}"] = extended if extended != "" else None
         ws[f"M{row}"] = item.get("po_number", header.get("po_number", ""))
-        ws[f"N{row}"] = item.get("ran_number", "")
+        ws[f"N{row}"] = _ran_digits(item.get("ran_number", ""))
 
         if isinstance(qty_num, int):
             total_qty += qty_num
@@ -367,7 +377,7 @@ def build_packing_list(header: dict, items: list[dict] | None = None) -> bytes:
         ws[f"L{row}"] = gross_total if gross_total != "" else None
         ws[f"M{row}"] = cbm_total   if cbm_total   != "" else None
         ws[f"N{row}"] = item.get("po_number", header.get("po_number", ""))
-        ws[f"O{row}"] = item.get("ran_number", "")
+        ws[f"O{row}"] = _ran_digits(item.get("ran_number", ""))
 
         if isinstance(qty_num, int):
             total_qty += qty_num
