@@ -386,13 +386,12 @@ async def generate_weekly_plan(
     )
     holidays = {h.week_start_date: h.reason for h in holiday_result.scalars().all()}
 
-    # 납품일 기준 4주 슬롯 구성 (선적주 1 = 다음 주 월요일 ~ 선적주 4 = 4주 후)
-    # 슬롯 번호 = 절대 주차 위치 (next_monday 기준 몇 주 뒤인가)
-    # 해당 주에 선적 없으면 빈 슬롯 — 수량 채우지 않음
-    today        = date.today()
-    next_monday  = _week_monday(today) + timedelta(weeks=1)
-    slots = []
-    seen_sailing_weeks: set[date] = set()
+    # 납품일 기준 4주 슬롯 구성 — 미래 납품일 순서대로 최대 4개
+    # 슬롯 번호는 납품일 순번 (1~4). 선적일 기준 창으로 필터하면
+    # 해상운송 기간(21일 기본)만큼 미래 납품일만 포함되어 최근 납품일이 잘리는 문제가 있음.
+    today   = date.today()
+    slots   = []
+    seen_delivery_weeks: set[date] = set()
 
     for entry in sorted(delivery_schedule, key=lambda x: x["date"]):
         try:
@@ -401,32 +400,32 @@ async def generate_weekly_plan(
         except (ValueError, KeyError):
             continue
 
-        # 선적일 역산 → 선적주 월요일
+        if d_date < today:
+            continue  # 이미 지난 납품일 제외
+
+        delivery_week_mon = _week_monday(d_date)
+        if delivery_week_mon in seen_delivery_weeks:
+            continue  # 같은 납품주 중복 스킵
+        seen_delivery_weeks.add(delivery_week_mon)
+
         sailing, prod_end, _ = _calc_dates(d_date, cp)
         sailing_week_mon     = _week_monday(sailing)
+        is_hol               = delivery_week_mon in holidays
 
-        # 절대 주차 번호: next_monday 기준 0주 뒤 = slot 1, 1주 뒤 = slot 2 …
-        slot_num = (sailing_week_mon - next_monday).days // 7 + 1
-        if slot_num < 1 or slot_num > 4:
-            continue  # 4주 창 밖은 무시
+        slot_num = len(slots) + 1
+        if slot_num > 4:
+            break  # 최대 4주
 
-        # 동일 선적주 중복 스킵
-        if sailing_week_mon in seen_sailing_weeks:
-            continue
-        seen_sailing_weeks.add(sailing_week_mon)
-
-        week_start = _week_monday(d_date)
-        is_hol     = week_start in holidays
         slots.append({
-            "slot":                slot_num,       # 절대 주차 (1~4)
-            "week_start":          str(week_start),
+            "slot":                slot_num,
+            "week_start":          str(delivery_week_mon),
             "sailing_week_monday": str(sailing_week_mon),
             "delivery_date":       str(d_date),
             "quantity":            qty,
             "sailing_date":        str(sailing),
             "production_end":      str(prod_end),
             "is_holiday":          is_hol,
-            "holiday_reason":      holidays.get(week_start),
+            "holiday_reason":      holidays.get(delivery_week_mon),
         })
 
     if not slots:
