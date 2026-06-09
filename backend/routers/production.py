@@ -63,7 +63,7 @@ async def _get_customer_profile(db, tenant_id, customer_name):
 def _calc_dates(delivery_date: date, cp) -> tuple[date, date, date]:
     """(sailing_date, production_end, production_start) 계산."""
     date_type          = cp.date_type          if cp else "arrival"
-    sea_transit_days   = cp.sea_transit_days   if cp else 0
+    sea_transit_days   = cp.sea_transit_days   if cp else 21   # 고객프로필 없을 때 해상운송 기본값 21일
     shipping_prep_days = cp.shipping_prep_days if cp else 2
     lead_time_days     = cp.production_lead_days if cp else 7
 
@@ -387,13 +387,13 @@ async def generate_weekly_plan(
     holidays = {h.week_start_date: h.reason for h in holiday_result.scalars().all()}
 
     # 선적일 기준 4주 슬롯 구성
-    # SA 납품일 → 선적일 역산 → 선적 주차(1~4) 배정
-    # 슬롯 1 = 차주(next_monday) 선적, 슬롯 4 = 4주 후 선적
-    # 이미 지난 선적 및 5주차+ 선적은 제외
-    today        = date.today()
-    next_monday  = _week_monday(today) + timedelta(weeks=1)
-    slots        = []
-    seen_sailing_weeks: set[date] = set()
+    # 슬롯 1 = 이번 주(this_monday) 선적, 슬롯 4 = 3주 뒤 선적
+    # 이미 지난 선적(slot<1) 및 5주차+(slot>4)는 제외
+    # 동일 선적주에 납품이 여러 건이면 수량 합산
+    today       = date.today()
+    this_monday = _week_monday(today)
+
+    slots_map: dict[date, dict] = {}
 
     for entry in sorted(delivery_schedule, key=lambda x: x["date"]):
         try:
@@ -403,30 +403,31 @@ async def generate_weekly_plan(
             continue
 
         sailing, prod_end, _ = _calc_dates(d_date, cp)
-        sailing_week_mon     = _week_monday(sailing)
+        sailing_week_mon = _week_monday(sailing)
 
-        # 절대 주차: next_monday 기준 몇 주 뒤 선적인가
-        slot_num = (sailing_week_mon - next_monday).days // 7 + 1
+        # 슬롯 번호: 이번 주 = 1, 다음 주 = 2, ... 4주 뒤 = 4
+        slot_num = (sailing_week_mon - this_monday).days // 7 + 1
         if slot_num < 1 or slot_num > 4:
-            continue  # 지난 선적 또는 5주차+ 제외
+            continue
 
-        if sailing_week_mon in seen_sailing_weeks:
-            continue  # 동일 선적주 중복 스킵
-        seen_sailing_weeks.add(sailing_week_mon)
+        if sailing_week_mon in slots_map:
+            slots_map[sailing_week_mon]["quantity"] += qty
+        else:
+            week_start = _week_monday(d_date)
+            is_hol     = week_start in holidays
+            slots_map[sailing_week_mon] = {
+                "slot":                slot_num,
+                "week_start":          str(week_start),
+                "sailing_week_monday": str(sailing_week_mon),
+                "delivery_date":       str(d_date),
+                "quantity":            qty,
+                "sailing_date":        str(sailing),
+                "production_end":      str(prod_end),
+                "is_holiday":          is_hol,
+                "holiday_reason":      holidays.get(week_start),
+            }
 
-        week_start = _week_monday(d_date)
-        is_hol     = week_start in holidays
-        slots.append({
-            "slot":                slot_num,
-            "week_start":          str(week_start),
-            "sailing_week_monday": str(sailing_week_mon),
-            "delivery_date":       str(d_date),
-            "quantity":            qty,
-            "sailing_date":        str(sailing),
-            "production_end":      str(prod_end),
-            "is_holiday":          is_hol,
-            "holiday_reason":      holidays.get(week_start),
-        })
+    slots = sorted(slots_map.values(), key=lambda s: s["slot"])
 
     if not slots:
         raise HTTPException(status_code=422, detail="유효한 미래 납품 일정이 없습니다.")

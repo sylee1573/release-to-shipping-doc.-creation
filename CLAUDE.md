@@ -811,3 +811,49 @@ SENTRY\_DSN=...
 * 코드 내 API 키 하드코딩 0건
 * `docker-compose up` 설치형 로컬 전체 플로우 동작
 
+---
+
+## 15\. 현재 작업 상태 (2026-06-09 기준)
+
+### 배포 상태
+
+| 환경 | URL | 상태 |
+|------|-----|------|
+| 백엔드 (Railway) | `https://backend-production-9aaf.up.railway.app` | ✅ RUNNING |
+| 프론트엔드 (Vercel) | `https://release-to-shipping-doc-creation.vercel.app` | ✅ READY |
+| GitHub Actions CI/CD | `.github/workflows/deploy.yml` | ✅ 설정 완료 |
+
+### 미커밋 변경사항 (로컬 작업 중)
+
+다음 변경사항이 커밋되지 않은 상태로 로컬에 있음:
+
+| 파일 | 변경 내용 |
+|------|-----------|
+| `backend/routers/orders.py` | `_extract_schedule_from_text()` 정규식 보완 — AI가 납품 일정 15건 미만 반환 시 정규식으로 자동 보완 |
+| `backend/routers/production.py` | 4주 슬롯 기준 `next_monday` → `this_monday` 변경, 동일 선적주 수량 합산 |
+| `backend/services/providers/anthropic_provider.py` | 납품 건수 제한 없음 (기존 최대 8건 → 무제한), `max_tokens` 2048→4096 |
+| `frontend/src/pages/ProductionList.tsx` | `getFourWeekMondays()` this\_monday 기준으로 동기화 |
+
+### 최근 커밋 이력 (직전 세션)
+
+```
+2395c38  fix: Excel 스타일 개선 및 RAN# 숫자 추출 함수 추가
+7cd0d01  fix: 생산의뢰서 4주 슬롯 — 선적일 기준 절대 주차 복원 + 해상운송 기본값 21일→0일
+dc45a01  fix: 생산의뢰서 4주 슬롯 — 선적일 기준 창 → 납품일 순번 기준으로 변경
+c2b2790  fix: 다중 파일 업로드·파싱 프롬프트·Excel 테두리 개선
+2cf15d1  fix: Invoice/PL 생성 시 선적주 1 기준 필터링
+```
+
+### 다음 할 일 (우선순위 순)
+
+1. **미커밋 변경사항 커밋** — 로컬 작업 내용을 main 브랜치에 반영
+2. **다른 고객사 SA 테스트** — BorgWarner 외 다른 발주서 파일로 파싱 정확도 검증
+3. **관리자 고객사 프로필 등록** — BorgWarner 프로필 등록 (납기역산·Invoice 데이터 정확도 향상)
+4. **파싱 정확도 검증** — 실제 SA 파일 10건 기준 85% 달성 여부 확인 (GATE-5 조건)
+
+### 알려진 문제
+
+1. **고객사명 오파싱** — AI가 ship\_to\_name 대신 우리 회사명을 파싱하는 케이스 있음 (관리자 프로필 등록으로 완화)
+2. **기존 생산의뢰서** — 코드 변경 전 생성된 PR은 "선적주 1~4"로 표시됨 (신규 생성분만 실제 날짜 표시)
+3. **정규식 보완 미커밋** — `_extract_schedule_from_text()` 아직 배포 안 됨
+

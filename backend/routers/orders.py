@@ -1,5 +1,7 @@
 import os
+import re
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -18,6 +20,22 @@ from services.ai_service import ai_provider
 from models.parsing_template import ParsingTemplate
 
 router = APIRouter(tags=["orders"])
+
+
+def _extract_schedule_from_text(text: str) -> list[dict]:
+    """
+    원문 텍스트에서 납품 일정을 정규식으로 추출.
+    BorgWarner SA 형식: 'D DD.MM.YYYY PROGRESS VOLUME'
+    반환: [{"date": "YYYY-MM-DD", "quantity": int}, ...]
+    """
+    entries = []
+    # BorgWarner SA: "D 02.07.2026 228,590 720" 패턴
+    for m in re.finditer(r'\bD\s+(\d{2})\.(\d{2})\.(\d{4})\s+[\d,]+\s+([\d,]+)', text):
+        dd, mm, yyyy, vol_str = m.group(1), m.group(2), m.group(3), m.group(4)
+        qty = int(vol_str.replace(',', ''))
+        if qty > 0:
+            entries.append({"date": f"{yyyy}-{mm}-{dd}", "quantity": qty})
+    return entries
 
 
 @router.get("/", response_model=list[OrderResponse])
@@ -112,6 +130,14 @@ async def upload_order(
         )
     try:
         parsed = await ai_provider.parse_document(raw_text, template_hint)
+
+        # AI가 반환한 delivery_schedule이 적으면 정규식으로 보완
+        ai_schedule = parsed.get("delivery_schedule", [])
+        if len(ai_schedule) < 15:
+            regex_schedule = _extract_schedule_from_text(raw_text)
+            if len(regex_schedule) > len(ai_schedule):
+                parsed["delivery_schedule"] = regex_schedule
+
         order.parsed_data = parsed
         order.parse_status = "done"
 
