@@ -17,6 +17,7 @@ from models.user import User
 from schemas.order import ConfirmOrderRequest, OrderResponse
 from services import pdf_service, excel_service
 from services.ai_service import ai_provider
+from services.parse_validation import validate_parsed, low_confidence_fields, needs_escalation
 from models.parsing_template import ParsingTemplate
 
 router = APIRouter(tags=["orders"])
@@ -129,7 +130,19 @@ async def upload_order(
             detail={"code": "EMPTY_TEXT", "message": "파일에서 텍스트를 추출할 수 없습니다. 스캔 PDF이거나 손상된 파일일 수 있습니다."},
         )
     try:
+        # 1차: Haiku(비용 절감). 결과가 부실하면 Sonnet으로 1회 에스컬레이션.
         parsed = await ai_provider.parse_document(raw_text, template_hint)
+
+        if needs_escalation(parsed):
+            reason = validate_parsed(parsed) or low_confidence_fields(parsed)
+            logging.warning(f"[parse_escalate] Haiku 미흡 {reason} → Sonnet 재시도")
+            escalated = await ai_provider.parse_document(raw_text, template_hint, escalate=True)
+            remaining = validate_parsed(escalated)
+            if remaining:
+                logging.error(f"[parse_escalate] Sonnet도 구조검증 실패: {remaining}")
+                note = escalated.get("parse_notes") or ""
+                escalated["parse_notes"] = note + f" [검증경고: {', '.join(remaining)}]"
+            parsed = escalated
 
         # AI가 반환한 delivery_schedule이 적으면 정규식으로 보완
         ai_schedule = parsed.get("delivery_schedule", [])
