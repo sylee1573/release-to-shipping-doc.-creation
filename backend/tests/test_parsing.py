@@ -48,6 +48,23 @@ def test_scan_pdf_detection():
     assert is_scan_pdf("a" * 50) is False
 
 
+def test_normalize_pua_recovers_glyph_codes():
+    """깨진 ToUnicode CMap: PUA(+0xF000) 글리프코드 → 실제 문자 복원."""
+    from services.pdf_service import _normalize_pua
+
+    pua = "".join(chr(ord(c) + 0xF000) for c in "forteq NA")
+    assert _normalize_pua(pua) == "forteq NA"
+
+
+def test_normalize_pua_leaves_normal_text():
+    """정상 한글/ASCII는 그대로(0xF000 영역 미사용)."""
+    from services.pdf_service import _normalize_pua
+
+    s = "발주서 품번 85310-AA000 수량 500EA"
+    assert _normalize_pua(s) == s
+    assert _normalize_pua("") == ""
+
+
 # --- parse_validation: 에스컬레이션 판정 (오프라인) ---
 
 def _good_parsed():
