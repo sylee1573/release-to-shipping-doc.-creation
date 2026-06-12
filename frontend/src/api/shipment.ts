@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, BASE_URL } from './client'
 import type { ShipmentDoc } from '../types'
 
 export const shipmentApi = {
@@ -19,5 +19,5 @@ export const shipmentApi = {
     sailing_week_monday?: string       // 기준 선적주(월). 미지정 시 슬롯1 폴백
   }) => api.post<ShipmentDoc>('/api/v1/shipment/', body),
 
-  downloadUrl: (id: string) => `/api/v1/shipment/${id}/download`,
+  downloadUrl: (id: string) => `${BASE_URL}/api/v1/shipment/${id}/download`,
 }

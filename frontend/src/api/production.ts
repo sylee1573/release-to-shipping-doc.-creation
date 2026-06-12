@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, BASE_URL } from './client'
 import type { ProductionRequest } from '../types'
 
 export const productionApi = {
@@ -27,5 +27,5 @@ export const productionApi = {
   updateStatus: (id: string, status: string) =>
     api.patch<ProductionRequest>(`/api/v1/production/${id}/status`, { status }),
 
-  downloadUrl: (id: string) => `/api/v1/production/${id}/download`,
+  downloadUrl: (id: string) => `${BASE_URL}/api/v1/production/${id}/download`,
 }

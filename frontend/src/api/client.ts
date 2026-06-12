@@ -1,6 +1,6 @@
 import { useAuthStore } from '../store/authStore'
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? ''
+export const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
