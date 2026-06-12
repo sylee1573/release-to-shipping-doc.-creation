@@ -61,6 +61,7 @@ export default function ProductionList() {
   const [statusFilter]                = useState('')
   const [checkedIds, setCheckedIds]   = useState<Set<string>>(new Set())
   const [showGenModal, setShowGenModal] = useState(false)
+  const [genWeekIdx, setGenWeekIdx]   = useState(0)  // 선적서류 생성 기준 선적주 (0~3)
   const qc    = useQueryClient()
   const token = useAuthStore((s) => s.token)
   const todayStr = new Date().toISOString().slice(0, 10)
@@ -105,20 +106,33 @@ export default function ProductionList() {
   // fourMondays는 return 안에서도 동일하게 참조하므로 여기서 미리 계산
   const fourMondays = getFourWeekMondays()
 
-  // 선적주 1(다음 주 월요일)에 선적 있는 PR만 반환
-  const slot1PRs = checkedPRs.filter((pr) =>
-    (pr.weekly_schedule ?? []).some((s) => s.sailing_week_monday === fourMondays[0])
+  // 해당 선적주(인덱스)에 선택된 PR 중 선적 있는지
+  const weekHasShipment = (idx: number) =>
+    checkedPRs.some((pr) => (pr.weekly_schedule ?? []).some((s) => s.sailing_week_monday === fourMondays[idx]))
+
+  const targetMonday = fourMondays[genWeekIdx]
+
+  // 선택 선적주에 선적 있는 PR (생성 대상)
+  const targetPRs = checkedPRs.filter((pr) =>
+    (pr.weekly_schedule ?? []).some((s) => s.sailing_week_monday === targetMonday)
   )
 
-  // 선택됐으나 선적주 1 없는 PR (모달 안내용)
+  // 선택됐으나 해당 선적주에 선적 없는 PR (모달 안내용)
   const excludedPRs = checkedPRs.filter((pr) =>
-    !(pr.weekly_schedule ?? []).some((s) => s.sailing_week_monday === fourMondays[0])
+    !(pr.weekly_schedule ?? []).some((s) => s.sailing_week_monday === targetMonday)
   )
+
+  // 모달 열 때 선적 있는 가장 가까운 주를 기본 선택 (없으면 1주)
+  const openGenModal = () => {
+    const firstWithShipment = [0, 1, 2, 3].find((i) => weekHasShipment(i)) ?? 0
+    setGenWeekIdx(firstWithShipment)
+    setShowGenModal(true)
+  }
 
   const createDocsMutation = useMutation({
     mutationFn: async () => {
-      // 선적주 1 기준으로만 그룹핑
-      const grouped = slot1PRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
+      // 선택 선적주 기준으로 그룹핑
+      const grouped = targetPRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
         const key = normalizeCustomer(pr.customer_name)
         if (!acc[key]) acc[key] = []
         acc[key].push(pr)
@@ -127,8 +141,8 @@ export default function ProductionList() {
       const created: Array<{ id: string; doc_number: string | null }> = []
       for (const [, prs] of Object.entries(grouped)) {
         const ids = prs.map((p) => p.id)
-        const inv = await shipmentApi.create({ production_request_ids: ids, doc_type: 'invoice' })
-        const pkl = await shipmentApi.create({ production_request_ids: ids, doc_type: 'packing_list' })
+        const inv = await shipmentApi.create({ production_request_ids: ids, doc_type: 'invoice', sailing_week_monday: targetMonday })
+        const pkl = await shipmentApi.create({ production_request_ids: ids, doc_type: 'packing_list', sailing_week_monday: targetMonday })
         created.push(inv, pkl)
       }
       return created
@@ -180,7 +194,7 @@ export default function ProductionList() {
           <p className="text-sm text-gray-500 mt-1">4주 롤링 계획 (선적주 기준)</p>
         </div>
         {checkedIds.size > 0 && (
-          <button onClick={() => setShowGenModal(true)} className="btn-primary">
+          <button onClick={openGenModal} className="btn-primary">
             Invoice/Packing 생성 ({checkedIds.size}건)
           </button>
         )}
@@ -321,18 +335,45 @@ export default function ProductionList() {
             <div className="px-6 pt-6 pb-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Invoice / Packing List 생성</h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                선적주 1 ({formatWeekHeader(fourMondays[0])}) 기준 · 고객사별 분류
+                선적주를 선택하면 해당 주 선적분으로 생성됩니다 · 고객사별 분류
               </p>
             </div>
+            {/* 선적주 선택 */}
+            <div className="px-6 pt-4">
+              <div className="grid grid-cols-4 gap-1.5">
+                {fourMondays.map((mon, i) => {
+                  const has = weekHasShipment(i)
+                  const active = i === genWeekIdx
+                  return (
+                    <button
+                      key={mon}
+                      onClick={() => setGenWeekIdx(i)}
+                      disabled={!has}
+                      className={
+                        'rounded-lg px-2 py-1.5 text-center border transition ' +
+                        (active
+                          ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-300'
+                          : has
+                            ? 'border-gray-200 bg-white hover:border-indigo-300'
+                            : 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed')
+                      }
+                    >
+                      <div className={'text-[9px] font-normal ' + (active ? 'text-indigo-500' : 'text-gray-400')}>{`선적주 ${i + 1}`}</div>
+                      <div className={'text-[11px] font-semibold ' + (active ? 'text-indigo-700' : 'text-gray-700')}>{formatWeekHeader(mon)}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
             <div className="px-6 py-4 max-h-64 overflow-y-auto space-y-2">
-              {/* 선적주 1 포함 PR — 생성 대상 */}
-              {slot1PRs.length === 0 ? (
+              {/* 선택 선적주 포함 PR — 생성 대상 */}
+              {targetPRs.length === 0 ? (
                 <p className="text-xs text-red-500 text-center py-2">
-                  선택된 항목 중 선적주 1에 해당하는 제품이 없습니다.
+                  선택한 선적주에 해당하는 제품이 없습니다. 다른 주를 선택하세요.
                 </p>
               ) : (
                 Object.entries(
-                  slot1PRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
+                  targetPRs.reduce<Record<string, ProductionRequest[]>>((acc, pr) => {
                     const key = normalizeCustomer(pr.customer_name)
                     if (!acc[key]) acc[key] = []
                     acc[key].push(pr)
@@ -342,20 +383,20 @@ export default function ProductionList() {
                   <div key={customer} className="border border-indigo-200 rounded-lg px-3 py-2.5 bg-indigo-50/40">
                     <p className="text-xs font-semibold text-gray-900 mb-1">{customer}</p>
                     {prs.map((pr) => {
-                      const slot1 = (pr.weekly_schedule ?? []).find((s) => s.sailing_week_monday === fourMondays[0])
+                      const slot = (pr.weekly_schedule ?? []).find((s) => s.sailing_week_monday === targetMonday)
                       return (
                         <p key={pr.id} className="text-xs text-gray-600">
-                          {pr.part_number} · {(slot1?.quantity ?? 0).toLocaleString()}EA · RAN#{pr.ran_number}
+                          {pr.part_number} · {(slot?.quantity ?? 0).toLocaleString()}EA · RAN#{pr.ran_number}
                         </p>
                       )
                     })}
                   </div>
                 ))
               )}
-              {/* 선적주 1 없는 PR — 제외 안내 */}
+              {/* 해당 주 선적 없는 PR — 제외 안내 */}
               {excludedPRs.length > 0 && (
                 <div className="border border-gray-200 rounded-lg px-3 py-2 bg-gray-50">
-                  <p className="text-[10px] text-gray-400 font-semibold mb-1">선적주 1 없음 — 제외됨</p>
+                  <p className="text-[10px] text-gray-400 font-semibold mb-1">이 선적주에 선적 없음 — 제외됨</p>
                   {excludedPRs.map((pr) => (
                     <p key={pr.id} className="text-[10px] text-gray-400 line-through">
                       {pr.part_number} ({normalizeCustomer(pr.customer_name)})
@@ -374,7 +415,7 @@ export default function ProductionList() {
               </button>
               <button
                 onClick={() => createDocsMutation.mutate()}
-                disabled={createDocsMutation.isPending || slot1PRs.length === 0}
+                disabled={createDocsMutation.isPending || targetPRs.length === 0}
                 className="btn-primary text-sm min-w-[96px]"
               >
                 {createDocsMutation.isPending ? '생성 중...' : 'Invoice/PL 생성'}

@@ -16,6 +16,7 @@ export const shipmentApi = {
     production_request_ids?: string[]  // 다품번 복수 선택
     production_request_id?: string     // 단일 (하위 호환)
     doc_type: 'invoice' | 'packing_list'
+    sailing_week_monday?: string       // 기준 선적주(월). 미지정 시 슬롯1 폴백
   }) => api.post<ShipmentDoc>('/api/v1/shipment/', body),
 
   downloadUrl: (id: string) => `/api/v1/shipment/${id}/download`,

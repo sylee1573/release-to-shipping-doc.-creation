@@ -26,6 +26,7 @@ async def _run_migrations():
         "003_sailing_date_multi_item.sql",
         "004_item_master_pallet_cbm.sql",
         "005_invoice_warning3.sql",
+        "006_shipment_sailing_week.sql",
     ]
 
     for fname in files:

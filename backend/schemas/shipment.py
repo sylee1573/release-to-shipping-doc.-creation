@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel, model_validator
 
 
@@ -8,6 +8,7 @@ class ShipmentCreate(BaseModel):
     production_request_ids: list[uuid.UUID] | None = None  # 복수 (다품번)
     production_request_id: uuid.UUID | None = None          # 단일 (기존 호환)
     doc_type: str  # 'invoice' / 'packing_list'
+    sailing_week_monday: date | None = None  # 기준 선적주(월). 미지정 시 슬롯1 폴백
 
     @model_validator(mode="after")
     def resolve_ids(self):
@@ -27,6 +28,7 @@ class ShipmentResponse(BaseModel):
     pr_ids: list[str] | None = None     # 다품번 묶음 PR ID 목록
     doc_type: str
     doc_number: str | None
+    sailing_week_monday: date | None = None
     excel_path: str | None
     issued_at: datetime | None
     created_at: datetime

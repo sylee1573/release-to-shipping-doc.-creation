@@ -31,6 +31,17 @@ async def _generate_doc_number(db: AsyncSession, doc_type: str) -> str:
     return f"{full_prefix}{str(count + 1).zfill(4)}"
 
 
+def _slot_for_week(pr, week_monday) -> dict | None:
+    """선택 선적주(월요일)에 해당하는 weekly_schedule 슬롯. 없으면 None (슬롯1 폴백용)."""
+    if not week_monday or not pr or not pr.weekly_schedule:
+        return None
+    target = str(week_monday)
+    for s in pr.weekly_schedule:
+        if s.get("sailing_week_monday") == target:
+            return s
+    return None
+
+
 async def _get_item_for_pr(db, tenant_id, part_number) -> ItemMaster | None:
     result = await db.execute(
         select(ItemMaster).where(
@@ -100,6 +111,7 @@ async def create_shipment_doc(
         pr_ids=[str(pid) for pid in pr_ids],      # 전체 목록 (JSONB)
         doc_type=body.doc_type,
         doc_number=await _generate_doc_number(db, body.doc_type),
+        sailing_week_monday=body.sailing_week_monday,
         issued_at=datetime.now(timezone.utc),
     )
     db.add(doc)
@@ -137,8 +149,13 @@ async def download_shipment_doc(
     )
     cp = cp_result.scalar_one_or_none()
 
-    # 공통 헤더 (선적일자는 대표 PR 기준)
-    sailing_date = str(first_pr.sailing_date) if first_pr and first_pr.sailing_date else ""
+    # 공통 헤더 (선적일자는 선택 선적주 기준, 미지정 시 대표 PR 슬롯1)
+    week_mon = doc.sailing_week_monday
+    first_slot = _slot_for_week(first_pr, week_mon)
+    sailing_date = (
+        first_slot.get("sailing_date") if first_slot
+        else (str(first_pr.sailing_date) if first_pr and first_pr.sailing_date else "")
+    )
     header = {
         "doc_number":        doc.doc_number,
         "customer_name":     customer_name,
@@ -158,10 +175,14 @@ async def download_shipment_doc(
         pn    = str(conf.get("part_number", ""))
         item_master = await _get_item_for_pr(db, user.tenant_id, pn)
 
+        # 선택 선적주의 주별 수량 사용 — 미지정/슬롯없음 시 PR 전체 수량 폴백
+        slot = _slot_for_week(pr, week_mon)
+        qty  = slot.get("quantity") if slot else ((pr.adjusted_quantity or pr.quantity) if pr else "")
+
         items.append({
             "part_number":       pn,
             "description":       (item_master.description if item_master and item_master.description else None) or conf.get("description", ""),
-            "quantity":          (pr.adjusted_quantity or pr.quantity) if pr else "",
+            "quantity":          qty,
             "unit_price":        (float(item_master.unit_price) if item_master and item_master.unit_price else None) or conf.get("unit_price"),
             "net_weight_per_pc": float(item_master.net_weight_per_pc) if item_master and item_master.net_weight_per_pc else None,
             "gross_weight_per_pc": float(item_master.gross_weight_per_pc) if item_master and item_master.gross_weight_per_pc else None,
