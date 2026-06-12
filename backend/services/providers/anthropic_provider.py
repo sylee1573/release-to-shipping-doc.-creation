@@ -81,14 +81,17 @@ class AnthropicProvider(BaseAIProvider):
         self.model_heavy = settings.ANTHROPIC_MODEL_HEAVY
         self.model_light = settings.ANTHROPIC_MODEL_LIGHT
 
-    async def parse_document(self, text: str, template_hint: str = "") -> dict:
+    async def parse_document(self, text: str, template_hint: str = "", escalate: bool = False) -> dict:
         system = _PARSE_SYSTEM
         if template_hint:
             system += f"\n\n발주서 양식 참고:\n{template_hint}"
 
-        # assistant prefill로 JSON 출력 강제
+        # 기본은 Haiku(light, 비용 절감), 검증 실패/저신뢰 시 escalate=True로 Sonnet(heavy) 재파싱
+        model = self.model_heavy if escalate else self.model_light
+
+        # assistant prefill로 JSON 출력 강제 (Haiku 4.5·Sonnet 4.5 모두 지원)
         message = await self.client.messages.create(
-            model=self.model_heavy,
+            model=model,
             max_tokens=4096,
             system=system,
             messages=[

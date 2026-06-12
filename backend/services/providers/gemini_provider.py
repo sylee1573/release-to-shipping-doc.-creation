@@ -29,7 +29,8 @@ class GeminiProvider(BaseAIProvider):
         self.model_heavy = genai.GenerativeModel(settings.GEMINI_MODEL_HEAVY)
         self.model_light = genai.GenerativeModel(settings.GEMINI_MODEL_LIGHT)
 
-    async def parse_document(self, text: str, template_hint: str = "") -> dict:
+    async def parse_document(self, text: str, template_hint: str = "", escalate: bool = False) -> dict:
+        # escalate는 인터페이스 호환용으로 수용(미검증 provider — 항상 heavy 사용)
         hint_section = f"양식 참고:\n{template_hint}" if template_hint else ""
         prompt = _PARSE_PROMPT_TEMPLATE.format(text=text, template_hint=hint_section)
         response = await self.model_heavy.generate_content_async(prompt)

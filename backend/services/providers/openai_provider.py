@@ -24,7 +24,8 @@ class OpenAIProvider(BaseAIProvider):
         self.model_heavy = settings.OPENAI_MODEL_HEAVY
         self.model_light = settings.OPENAI_MODEL_LIGHT
 
-    async def parse_document(self, text: str, template_hint: str = "") -> dict:
+    async def parse_document(self, text: str, template_hint: str = "", escalate: bool = False) -> dict:
+        # escalate는 인터페이스 호환용으로 수용(미검증 provider — 항상 heavy 사용)
         system = _PARSE_SYSTEM
         if template_hint:
             system += f"\n\n발주서 양식 참고:\n{template_hint}"

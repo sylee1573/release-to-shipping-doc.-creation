@@ -27,7 +27,8 @@ class OllamaProvider(BaseAIProvider):
             response.raise_for_status()
             return response.json()["message"]["content"]
 
-    async def parse_document(self, text: str, template_hint: str = "") -> dict:
+    async def parse_document(self, text: str, template_hint: str = "", escalate: bool = False) -> dict:
+        # escalate는 인터페이스 호환용으로 수용(미검증 provider — 항상 heavy 사용)
         system = _PARSE_SYSTEM
         if template_hint:
             system += f"\n양식 참고: {template_hint}"
