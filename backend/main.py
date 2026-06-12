@@ -69,10 +69,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS — 운영에서는 FRONTEND_URL(콤마 구분 다중 허용) + 이 프로젝트 Vercel 도메인(프리뷰 포함) 허용.
+# 환경변수 오타·트레일링 슬래시에도 안전하도록 정규식 병행.
+_is_dev = settings.ENVIRONMENT == "development"
+_frontend_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.ENVIRONMENT == "development" else [settings.FRONTEND_URL],
-    allow_credentials=True,
+    allow_origins=["*"] if _is_dev else _frontend_origins,
+    allow_origin_regex=None if _is_dev else r"https://release-to-shipping-doc-creation[a-z0-9-]*\.vercel\.app",
+    allow_credentials=not _is_dev,
     allow_methods=["*"],
     allow_headers=["*"],
 )
