@@ -39,12 +39,11 @@ function weekMondayISO(isoDate: string): string {
   return addDaysISO(isoDate, daysToMon)
 }
 
-// 오늘 기준 "다음 주 월요일"부터 4주 절대 날짜 (백엔드 next_monday 로직과 동일)
+// 오늘 기준 "이번 주 월요일"부터 4주 절대 날짜 (백엔드 this_monday 로직과 동일)
 function getFourWeekMondays(): string[] {
   const todayISO = new Date().toISOString().slice(0, 10)
   const thisMon  = weekMondayISO(todayISO)
-  const nextMon  = addDaysISO(thisMon, 7)
-  return [0, 1, 2, 3].map((i) => addDaysISO(nextMon, i * 7))
+  return [0, 1, 2, 3].map((i) => addDaysISO(thisMon, i * 7))
 }
 
 function formatWeekHeader(isoDate: string): string {

@@ -4,9 +4,11 @@ from abc import ABC, abstractmethod
 class BaseAIProvider(ABC):
 
     @abstractmethod
-    async def parse_document(self, text: str, template_hint: str = "") -> dict:
+    async def parse_document(self, text: str, template_hint: str = "", escalate: bool = False) -> dict:
         """
-        발주서 텍스트 파싱 (복잡, 고정확도 모델 사용)
+        발주서 텍스트 파싱
+        escalate=True면 고정확도(heavy) 모델로 재파싱 — 검증 실패/저신뢰 폴백용.
+        기본(escalate=False)은 비용 절감 모델 사용.
         반환 형식:
         {
           "fields": {

@@ -1,5 +1,7 @@
 import os
+import re
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -15,9 +17,26 @@ from models.user import User
 from schemas.order import ConfirmOrderRequest, OrderResponse
 from services import pdf_service, excel_service
 from services.ai_service import ai_provider
+from services.parse_validation import validate_parsed, low_confidence_fields, needs_escalation
 from models.parsing_template import ParsingTemplate
 
 router = APIRouter(tags=["orders"])
+
+
+def _extract_schedule_from_text(text: str) -> list[dict]:
+    """
+    원문 텍스트에서 납품 일정을 정규식으로 추출.
+    BorgWarner SA 형식: 'D DD.MM.YYYY PROGRESS VOLUME'
+    반환: [{"date": "YYYY-MM-DD", "quantity": int}, ...]
+    """
+    entries = []
+    # BorgWarner SA: "D 02.07.2026 228,590 720" 패턴
+    for m in re.finditer(r'\bD\s+(\d{2})\.(\d{2})\.(\d{4})\s+[\d,]+\s+([\d,]+)', text):
+        dd, mm, yyyy, vol_str = m.group(1), m.group(2), m.group(3), m.group(4)
+        qty = int(vol_str.replace(',', ''))
+        if qty > 0:
+            entries.append({"date": f"{yyyy}-{mm}-{dd}", "quantity": qty})
+    return entries
 
 
 @router.get("/", response_model=list[OrderResponse])
@@ -111,7 +130,27 @@ async def upload_order(
             detail={"code": "EMPTY_TEXT", "message": "파일에서 텍스트를 추출할 수 없습니다. 스캔 PDF이거나 손상된 파일일 수 있습니다."},
         )
     try:
+        # 1차: Haiku(비용 절감). 결과가 부실하면 Sonnet으로 1회 에스컬레이션.
         parsed = await ai_provider.parse_document(raw_text, template_hint)
+
+        if needs_escalation(parsed):
+            reason = validate_parsed(parsed) or low_confidence_fields(parsed)
+            logging.warning(f"[parse_escalate] Haiku 미흡 {reason} → Sonnet 재시도")
+            escalated = await ai_provider.parse_document(raw_text, template_hint, escalate=True)
+            remaining = validate_parsed(escalated)
+            if remaining:
+                logging.error(f"[parse_escalate] Sonnet도 구조검증 실패: {remaining}")
+                note = escalated.get("parse_notes") or ""
+                escalated["parse_notes"] = note + f" [검증경고: {', '.join(remaining)}]"
+            parsed = escalated
+
+        # AI가 반환한 delivery_schedule이 적으면 정규식으로 보완
+        ai_schedule = parsed.get("delivery_schedule", [])
+        if len(ai_schedule) < 15:
+            regex_schedule = _extract_schedule_from_text(raw_text)
+            if len(regex_schedule) > len(ai_schedule):
+                parsed["delivery_schedule"] = regex_schedule
+
         order.parsed_data = parsed
         order.parse_status = "done"
 
