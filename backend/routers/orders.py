@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import uuid
@@ -21,6 +22,35 @@ from services.parse_validation import validate_parsed, low_confidence_fields, ne
 from models.parsing_template import ParsingTemplate
 
 router = APIRouter(tags=["orders"])
+
+
+async def parse_with_escalation(raw_text: str, template_hint: str = "", provider=None) -> dict:
+    """Haiku 1차 파싱 → 부실하거나 JSON 파싱 예외 시 Sonnet으로 1회 에스컬레이션.
+
+    핵심: Haiku 응답이 잘려(truncation) JSON 파싱 예외가 나도 하드 실패하지 않고
+    Sonnet으로 재시도한다. (기존 인라인 로직은 1차 파싱 성공 후 검증 미흡일 때만
+    에스컬레이션했고, JSON 예외는 곧장 실패 처리됐음 — schedule가 많은 SA 간헐 실패 원인)
+    """
+    prov = provider or ai_provider
+    try:
+        parsed = await prov.parse_document(raw_text, template_hint)
+        escalate = needs_escalation(parsed)
+        reason = (validate_parsed(parsed) or low_confidence_fields(parsed)) if escalate else None
+    except Exception as haiku_err:
+        logging.warning(f"[parse_escalate] Haiku 파싱 예외 → Sonnet 재시도: {haiku_err}")
+        escalate, reason = True, f"haiku_exception: {haiku_err}"
+
+    if not escalate:
+        return parsed
+
+    logging.warning(f"[parse_escalate] Haiku 미흡 {reason} → Sonnet 재시도")
+    escalated = await prov.parse_document(raw_text, template_hint, escalate=True)
+    remaining = validate_parsed(escalated)
+    if remaining:
+        logging.error(f"[parse_escalate] Sonnet도 구조검증 실패: {remaining}")
+        note = escalated.get("parse_notes") or ""
+        escalated["parse_notes"] = note + f" [검증경고: {', '.join(remaining)}]"
+    return escalated
 
 
 def _extract_schedule_from_text(text: str) -> list[dict]:
@@ -119,7 +149,7 @@ async def upload_order(
     template_hint = template.template_description or "" if template else ""
 
     # 2단계: AI 파싱 (텍스트만 전달 — 토큰 최소화)
-    import traceback, logging
+    import traceback
     # 텍스트 추출 실패 시 AI 호출 금지 (빈 입력 → 예시 데이터 오염 방지)
     if not raw_text or len(raw_text.strip()) < 20:
         order.parse_status = "failed"
@@ -130,19 +160,8 @@ async def upload_order(
             detail={"code": "EMPTY_TEXT", "message": "파일에서 텍스트를 추출할 수 없습니다. 스캔 PDF이거나 손상된 파일일 수 있습니다."},
         )
     try:
-        # 1차: Haiku(비용 절감). 결과가 부실하면 Sonnet으로 1회 에스컬레이션.
-        parsed = await ai_provider.parse_document(raw_text, template_hint)
-
-        if needs_escalation(parsed):
-            reason = validate_parsed(parsed) or low_confidence_fields(parsed)
-            logging.warning(f"[parse_escalate] Haiku 미흡 {reason} → Sonnet 재시도")
-            escalated = await ai_provider.parse_document(raw_text, template_hint, escalate=True)
-            remaining = validate_parsed(escalated)
-            if remaining:
-                logging.error(f"[parse_escalate] Sonnet도 구조검증 실패: {remaining}")
-                note = escalated.get("parse_notes") or ""
-                escalated["parse_notes"] = note + f" [검증경고: {', '.join(remaining)}]"
-            parsed = escalated
+        # 1차 Haiku → 부실/JSON예외 시 Sonnet 1회 에스컬레이션 (parse_with_escalation 참조)
+        parsed = await parse_with_escalation(raw_text, template_hint)
 
         # AI가 반환한 delivery_schedule이 적으면 정규식으로 보완
         ai_schedule = parsed.get("delivery_schedule", [])

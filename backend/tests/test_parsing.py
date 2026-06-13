@@ -142,3 +142,55 @@ def test_needs_escalation_low_confidence_is_true():
 def test_needs_escalation_structural_fail_is_true():
     from services.parse_validation import needs_escalation
     assert needs_escalation({}) is True
+
+
+# --- parse_with_escalation: 1차 Haiku → Sonnet 에스컬레이션 (오프라인, fake provider) ---
+
+class _FakeProvider:
+    """parse_document 호출을 기록하는 가짜 provider. escalate=False는 Haiku, True는 Sonnet."""
+    def __init__(self, haiku_result=None, haiku_exc=None, sonnet_result=None):
+        self.haiku_result = haiku_result
+        self.haiku_exc = haiku_exc
+        self.sonnet_result = sonnet_result
+        self.calls = []  # escalate 플래그 기록
+
+    async def parse_document(self, text, template_hint="", escalate=False):
+        self.calls.append(escalate)
+        if escalate:
+            return self.sonnet_result
+        if self.haiku_exc is not None:
+            raise self.haiku_exc
+        return self.haiku_result
+
+
+@pytest.mark.asyncio
+async def test_escalation_good_haiku_no_sonnet():
+    """Haiku 결과가 양호하면 Sonnet 호출 없이 그대로 반환."""
+    from routers.orders import parse_with_escalation
+    prov = _FakeProvider(haiku_result=_good_parsed())
+    result = await parse_with_escalation("text", provider=prov)
+    assert result == _good_parsed()
+    assert prov.calls == [False]  # Haiku 1회만
+
+
+@pytest.mark.asyncio
+async def test_escalation_weak_haiku_triggers_sonnet():
+    """Haiku 결과가 부실(구조검증 실패)하면 Sonnet으로 재시도."""
+    from routers.orders import parse_with_escalation
+    prov = _FakeProvider(haiku_result={"fields": {}}, sonnet_result=_good_parsed())
+    result = await parse_with_escalation("text", provider=prov)
+    assert result == _good_parsed()
+    assert prov.calls == [False, True]  # Haiku → Sonnet
+
+
+@pytest.mark.asyncio
+async def test_escalation_haiku_json_exception_recovers_via_sonnet():
+    """핵심 회귀: Haiku가 JSON 잘림으로 예외를 던져도 하드 실패 대신 Sonnet 복구."""
+    from routers.orders import parse_with_escalation
+    prov = _FakeProvider(
+        haiku_exc=ValueError("AI 응답을 JSON으로 파싱할 수 없습니다."),
+        sonnet_result=_good_parsed(),
+    )
+    result = await parse_with_escalation("text", provider=prov)
+    assert result == _good_parsed()
+    assert prov.calls == [False, True]  # 예외 후 Sonnet 재시도

@@ -48,7 +48,8 @@ confidence 기준:
 - 0.70~0.89: 추정 가능하나 확인 권장
 - 0.70 미만: 불확실, 수동 확인 필요
 
-반환 형식: 위 예시 출력과 동일한 JSON만 반환. 코드블록·설명 없이 JSON 텍스트만."""
+반환 형식: 위 예시 출력과 동일한 JSON만 반환. 코드블록·설명 없이 JSON 텍스트만.
+출력은 줄바꿈·들여쓰기 없이 한 줄 compact JSON으로 작성하라 (토큰 절약·응답 잘림 방지)."""
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -92,7 +93,7 @@ class AnthropicProvider(BaseAIProvider):
         # assistant prefill로 JSON 출력 강제 (Haiku 4.5·Sonnet 4.5 모두 지원)
         message = await self.client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=8192,
             system=system,
             messages=[
                 {"role": "user", "content": f"다음 발주서를 파싱하세요:\n\n{text}"},
