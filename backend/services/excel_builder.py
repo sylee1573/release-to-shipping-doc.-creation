@@ -11,7 +11,9 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_PATH = Path(__file__).parent.parent.parent / "inv.packing_ex" / "KCR26-06.xlsx"
+# 배포 컨텍스트(backend/) 안에 둬야 Docker(COPY backend/ .)·Railway 배포에 포함됨.
+# 루트 inv.packing_ex/ 는 git 미추적이라 배포본에 없었음 → 다운로드 500의 원인이었음.
+TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "KCR26-06.xlsx"
 
 SENDER_NAME = "KYUNG CHANG PRECISION IND. CO., LTD."
 SENDER_ADDRESS = "149 Gukgasandan-daero 33-gil, Guji-myeon, Dalseong-gun, Daegu"
