@@ -5,9 +5,27 @@ import type {
   ParsingTemplate,
   Tenant,
   UsageReport,
+  User,
 } from '../types'
 
 export const adminApi = {
+  // ── 계정 관리 ────────────────────────────────────────────────
+  listUsers: (tenantId?: string) => {
+    const qs = tenantId ? `?tenant_id=${tenantId}` : ''
+    return api.get<User[]>(`/api/v1/admin/users${qs}`)
+  },
+
+  createUser: (body: {
+    email: string
+    password: string
+    full_name?: string
+    role?: string
+    tenant_id?: string
+  }) => api.post<User>('/api/v1/admin/users', body),
+
+  setUserActive: (userId: string, isActive: boolean) =>
+    api.patch<User>(`/api/v1/admin/users/${userId}/active`, { is_active: isActive }),
+
   // ── 플랫폼 관리 ──────────────────────────────────────────────
   getUsage: (billingMonth?: string) => {
     const qs = billingMonth ? `?billing_month=${billingMonth}` : ''

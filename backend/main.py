@@ -14,6 +14,8 @@ from services.schedule_service import start_scheduler, stop_scheduler
 if settings.SENTRY_DSN:
     sentry_sdk.init(dsn=settings.SENTRY_DSN, environment=settings.ENVIRONMENT)
 
+# 앱 로거를 stdout으로 노출 (uvicorn은 자체 로거만 설정 → 앱 INFO/WARNING이 안 보이던 문제)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

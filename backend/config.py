@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 1440
 
     # Solapi (카카오 알림톡 + SMS)
+    # 외부 발송 마스터 스위치 — staging 등 비운영 환경에서 false로 두면 모든 발송 차단(외부 호출 0)
+    NOTIFICATIONS_ENABLED: bool = True
     SOLAPI_API_KEY: str = ""
     SOLAPI_API_SECRET: str = ""
     SOLAPI_SENDER_PHONE: str = ""

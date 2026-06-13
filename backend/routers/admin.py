@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from middleware.auth import require_superadmin
+from middleware.auth import hash_password, require_admin, require_superadmin
 from middleware.tenant_guard import require_active_tenant
 from models.customer_profile import CustomerProfile
 from models.invoice import Invoice
@@ -16,12 +16,15 @@ from models.parsing_template import ParsingTemplate
 from models.tenant import Tenant
 from models.user import User
 from schemas.admin import (
+    AdminUserCreate,
     TemplateCreate,
     TemplateResponse,
     TenantCreate,
     TenantResponse,
     UsageReport,
+    UserActiveUpdate,
 )
+from schemas.auth import UserResponse
 from schemas.common import MessageResponse
 
 router = APIRouter(tags=["admin"])
@@ -103,6 +106,83 @@ async def create_tenant(
     await db.commit()
     await db.refresh(tenant)
     return tenant
+
+
+# ── 계정 관리 (superadmin: 전체 / 고객사 admin: 자기 테넌트 직원) ───────
+
+_ROLES_BY_SUPERADMIN = ("admin", "manager", "member")
+_ROLES_BY_TENANT_ADMIN = ("manager", "member")  # 고객사 admin은 admin 승격 불가
+
+
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    tenant_id: uuid.UUID | None = None,
+    caller: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(User)
+    if caller.is_superadmin:
+        if tenant_id:
+            stmt = stmt.where(User.tenant_id == tenant_id)
+    else:
+        stmt = stmt.where(User.tenant_id == caller.tenant_id)  # §11 테넌트 격리
+    result = await db.execute(stmt.order_by(User.created_at))
+    return result.scalars().all()
+
+
+@router.post("/users", response_model=UserResponse, status_code=201)
+async def create_user(
+    body: AdminUserCreate,
+    caller: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if caller.is_superadmin:
+        tenant_id = body.tenant_id or caller.tenant_id
+        allowed = _ROLES_BY_SUPERADMIN
+    else:
+        tenant_id = caller.tenant_id            # 강제: 자기 테넌트 (§11)
+        allowed = _ROLES_BY_TENANT_ADMIN
+    if body.role not in allowed:
+        raise HTTPException(status_code=403, detail="해당 권한의 계정을 생성할 수 없습니다")
+
+    if not await db.get(Tenant, tenant_id):
+        raise HTTPException(status_code=404, detail="고객사를 찾을 수 없습니다")
+
+    dup = await db.execute(select(User).where(User.email == body.email))
+    if dup.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="이미 사용 중인 이메일입니다")
+
+    user = User(
+        tenant_id=tenant_id,
+        email=body.email,
+        password_hash=hash_password(body.password),
+        full_name=body.full_name,
+        role=body.role,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/users/{user_id}/active", response_model=UserResponse)
+async def set_user_active(
+    user_id: uuid.UUID,
+    body: UserActiveUpdate,
+    caller: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    target = await db.get(User, user_id)
+    if not target or (not caller.is_superadmin and target.tenant_id != caller.tenant_id):
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+    if target.is_superadmin:
+        raise HTTPException(status_code=403, detail="운영자 계정은 변경할 수 없습니다")
+    if target.id == caller.id:
+        raise HTTPException(status_code=400, detail="본인 계정은 변경할 수 없습니다")
+    target.is_active = body.is_active
+    await db.commit()
+    await db.refresh(target)
+    return target
 
 
 @router.get("/templates", response_model=list[TemplateResponse])

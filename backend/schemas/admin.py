@@ -1,6 +1,18 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+
+
+class AdminUserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    full_name: str | None = None
+    role: str = "member"               # superadmin: admin/manager/member · 고객사 admin: manager/member
+    tenant_id: uuid.UUID | None = None  # superadmin이 대상 고객사 지정 시에만 사용
+
+
+class UserActiveUpdate(BaseModel):
+    is_active: bool
 
 
 class TenantCreate(BaseModel):

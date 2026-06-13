@@ -83,6 +83,7 @@ export interface User {
   full_name: string | null
   role: string
   is_active: boolean
+  is_superadmin?: boolean
 }
 
 export interface UsageReport {

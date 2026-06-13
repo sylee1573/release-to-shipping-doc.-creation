@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '../api/admin'
+import { useAuthStore } from '../store/authStore'
 import type { CustomerProfile, ItemMaster } from '../types'
 
-type Tab = 'usage' | 'tenants' | 'templates' | 'customer-profiles' | 'item-master'
+type Tab = 'users' | 'usage' | 'tenants' | 'templates' | 'customer-profiles' | 'item-master'
 
 // ── 사용량 탭 ──────────────────────────────────────────────
 function UsageTab() {
@@ -499,23 +500,157 @@ function ItemMasterTab() {
   )
 }
 
+// ── 계정 관리 탭 ───────────────────────────────────────────
+function UsersTab() {
+  const qc = useQueryClient()
+  const me = useAuthStore((s) => s.user)
+  const isSuper = !!me?.is_superadmin
+
+  const roleOptions = isSuper
+    ? [{ v: 'admin', l: '고객사 관리자' }, { v: 'manager', l: '매니저' }, { v: 'member', l: '직원' }]
+    : [{ v: 'manager', l: '매니저' }, { v: 'member', l: '직원' }]
+  const roleLabel: Record<string, string> = { admin: '관리자', manager: '매니저', member: '직원' }
+
+  const BLANK = { email: '', password: '', full_name: '', role: isSuper ? 'admin' : 'member' }
+  const [form, setForm] = useState(BLANK)
+  const [selectedTenant, setSelectedTenant] = useState('')
+  const [showForm, setShowForm] = useState(false)
+  const [err, setErr] = useState('')
+
+  const { data: tenants = [] } = useQuery({
+    queryKey: ['admin-tenants'], queryFn: () => adminApi.listTenants(), enabled: isSuper,
+  })
+  const tenantName = (id: string) => tenants.find((t) => t.id === id)?.name ?? id
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['admin-users', selectedTenant],
+    queryFn: () => adminApi.listUsers(isSuper ? (selectedTenant || undefined) : undefined),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: () => adminApi.createUser({
+      email: form.email, password: form.password, full_name: form.full_name || undefined,
+      role: form.role, tenant_id: isSuper ? (selectedTenant || undefined) : undefined,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); setForm(BLANK); setShowForm(false); setErr('') },
+    onError: (e) => setErr(e instanceof Error ? e.message : '계정 생성에 실패했습니다'),
+  })
+
+  const activeMutation = useMutation({
+    mutationFn: (p: { id: string; active: boolean }) => adminApi.setUserActive(p.id, p.active),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+  })
+
+  const canSubmit = form.email && form.password.length >= 8 && (!isSuper || selectedTenant)
+
+  return (
+    <>
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="font-semibold text-gray-800">계정 관리</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {isSuper ? '고객사를 선택해 관리자 계정을 발급합니다' : '우리 회사 직원 로그인 계정을 발급·관리합니다'}
+          </p>
+        </div>
+        <button onClick={() => { setShowForm(!showForm); setErr('') }} className="btn-primary text-sm">
+          {showForm ? '취소' : '+ 계정 발급'}
+        </button>
+      </div>
+
+      {isSuper && (
+        <div className="card mb-4">
+          <label className="block text-xs font-medium text-gray-600 mb-1">고객사 선택</label>
+          <select className="input md:w-96" value={selectedTenant} onChange={(e) => setSelectedTenant(e.target.value)}>
+            <option value="">-- 전체 (발급하려면 선택) --</option>
+            {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {showForm && (
+        <div className="card mb-4">
+          <h3 className="font-medium text-gray-800 mb-3">신규 계정 발급</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">이메일 (로그인 ID) *</label><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">이름</label><input className="input" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></div>
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">비밀번호 (8자 이상) *</label><input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">권한</label>
+              <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                {roleOptions.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
+              </select>
+            </div>
+          </div>
+          {isSuper && !selectedTenant && <p className="text-xs text-orange-600 mt-2">상단에서 고객사를 먼저 선택하세요.</p>}
+          {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
+          <div className="flex justify-end mt-3">
+            <button onClick={() => createMutation.mutate()} disabled={!canSubmit || createMutation.isPending} className="btn-primary text-sm">발급</button>
+          </div>
+        </div>
+      )}
+
+      <div className="card overflow-hidden p-0">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-100">
+            <tr>{[...(isSuper ? ['고객사'] : []), '이메일', '이름', '권한', '상태', ''].map((h, i) => (
+              <th key={i} className="px-4 py-3 text-left font-semibold text-gray-600 text-xs">{h}</th>
+            ))}</tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {isLoading ? (
+              <tr><td colSpan={isSuper ? 6 : 5} className="px-4 py-8 text-center text-gray-400">불러오는 중...</td></tr>
+            ) : users.length === 0 ? (
+              <tr><td colSpan={isSuper ? 6 : 5} className="px-4 py-8 text-center text-gray-400">계정이 없습니다</td></tr>
+            ) : users.map((u) => (
+              <tr key={u.id} className="hover:bg-gray-50">
+                {isSuper && <td className="px-4 py-3 text-gray-500 text-xs">{tenantName(u.tenant_id)}</td>}
+                <td className="px-4 py-3 font-medium text-gray-900">{u.email}</td>
+                <td className="px-4 py-3 text-gray-600">{u.full_name ?? '—'}</td>
+                <td className="px-4 py-3 text-gray-600">{u.is_superadmin ? '운영자' : (roleLabel[u.role] ?? u.role)}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                    {u.is_active ? '활성' : '비활성'}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  {!u.is_superadmin && u.id !== me?.id && (
+                    <button onClick={() => activeMutation.mutate({ id: u.id, active: !u.is_active })} disabled={activeMutation.isPending}
+                      className="text-xs text-brand-600 hover:underline font-medium">{u.is_active ? '비활성화' : '활성화'}</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
 // ── 메인 Admin 페이지 ───────────────────────────────────────
 export default function Admin() {
-  const [tab, setTab] = useState<Tab>('customer-profiles')
+  const isSuper = !!useAuthStore((s) => s.user?.is_superadmin)
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: 'customer-profiles', label: '고객사 프로필' },
-    { key: 'item-master',       label: '품목마스터' },
-    { key: 'usage',             label: '사용량 리포트' },
-    { key: 'tenants',           label: '고객사 관리' },
-    { key: 'templates',         label: '양식 템플릿' },
-  ]
+  const TABS: { key: Tab; label: string }[] = isSuper
+    ? [
+        { key: 'users',             label: '계정 관리' },
+        { key: 'customer-profiles', label: '고객사 프로필' },
+        { key: 'item-master',       label: '품목마스터' },
+        { key: 'usage',             label: '사용량 리포트' },
+        { key: 'tenants',           label: '고객사 관리' },
+        { key: 'templates',         label: '양식 템플릿' },
+      ]
+    : [{ key: 'users', label: '계정 관리' }]
+
+  const [tab, setTab] = useState<Tab>(isSuper ? 'customer-profiles' : 'users')
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">관리</h1>
-        <p className="text-gray-500 text-sm mt-1">고객사 프로필, 품목마스터, 사용량을 관리합니다</p>
+        <p className="text-gray-500 text-sm mt-1">
+          {isSuper ? '고객사 프로필, 품목마스터, 계정, 사용량을 관리합니다' : '직원 로그인 계정을 관리합니다'}
+        </p>
       </div>
       <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
         {TABS.map((t) => (
@@ -527,6 +662,7 @@ export default function Admin() {
           </button>
         ))}
       </div>
+      {tab === 'users'             && <UsersTab />}
       {tab === 'customer-profiles' && <CustomerProfilesTab />}
       {tab === 'item-master'       && <ItemMasterTab />}
       {tab === 'usage'             && <UsageTab />}
