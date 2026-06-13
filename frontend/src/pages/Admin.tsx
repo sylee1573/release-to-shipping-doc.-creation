@@ -674,8 +674,11 @@ function UsersTab() {
 
 // ── 메인 Admin 페이지 ───────────────────────────────────────
 export default function Admin() {
-  const isSuper = !!useAuthStore((s) => s.user?.is_superadmin)
+  const me = useAuthStore((s) => s.user)
+  const isSuper = !!me?.is_superadmin
+  const isAdmin = isSuper || me?.role === 'admin'   // 고객사 관리자
 
+  // 품목마스터·고객사 프로필은 모든 테넌트 계정이 자기 회사 데이터로 관리. 계정 관리는 admin 전용.
   const TABS: { key: Tab; label: string }[] = isSuper
     ? [
         { key: 'users',             label: '계정 관리' },
@@ -685,16 +688,27 @@ export default function Admin() {
         { key: 'tenants',           label: '고객사 관리' },
         { key: 'templates',         label: '양식 템플릿' },
       ]
-    : [{ key: 'users', label: '계정 관리' }]
+    : isAdmin
+      ? [
+          { key: 'users',             label: '계정 관리' },
+          { key: 'customer-profiles', label: '고객사 프로필' },
+          { key: 'item-master',       label: '품목마스터' },
+        ]
+      : [
+          { key: 'customer-profiles', label: '고객사 프로필' },
+          { key: 'item-master',       label: '품목마스터' },
+        ]
 
-  const [tab, setTab] = useState<Tab>(isSuper ? 'customer-profiles' : 'users')
+  const [tab, setTab] = useState<Tab>(isSuper ? 'customer-profiles' : isAdmin ? 'users' : 'customer-profiles')
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">관리</h1>
         <p className="text-gray-500 text-sm mt-1">
-          {isSuper ? '고객사 프로필, 품목마스터, 계정, 사용량을 관리합니다' : '직원 로그인 계정을 관리합니다'}
+          {isSuper ? '고객사 프로필, 품목마스터, 계정, 사용량을 관리합니다'
+            : isAdmin ? '직원 계정·품목마스터·고객사 프로필을 관리합니다'
+            : '품목마스터·고객사 프로필을 관리합니다'}
         </p>
       </div>
       {isSuper && <OperatorGuide />}

@@ -9,7 +9,7 @@ const navItems = [
   { to: '/shipment',       label: '선적서류',     icon: '🚢' },
 ]
 
-function NavLinks({ role, onClose }: { role?: string; onClose?: () => void }) {
+function NavLinks({ onClose }: { onClose?: () => void }) {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
       isActive
@@ -25,11 +25,9 @@ function NavLinks({ role, onClose }: { role?: string; onClose?: () => void }) {
           {label}
         </NavLink>
       ))}
-      {(role === 'admin' || role === 'superadmin') && (
-        <NavLink to="/admin" className={linkClass} onClick={onClose}>
-          <span>⚙️</span> 관리자
-        </NavLink>
-      )}
+      <NavLink to="/admin" className={linkClass} onClick={onClose}>
+        <span>⚙️</span> 관리자
+      </NavLink>
     </nav>
   )
 }
@@ -50,7 +48,7 @@ export default function Layout() {
         <h1 className="text-base font-bold text-brand-700 leading-tight">발주 자동화</h1>
         <p className="text-xs text-gray-400 mt-0.5 truncate">{user?.email}</p>
       </div>
-      <NavLinks role={user?.role} onClose={() => setSidebarOpen(false)} />
+      <NavLinks onClose={() => setSidebarOpen(false)} />
       <div className="px-4 py-4 border-t border-gray-100">
         <button
           onClick={handleLogout}
