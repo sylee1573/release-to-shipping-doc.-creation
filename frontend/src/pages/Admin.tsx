@@ -1,10 +1,43 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '../api/admin'
 import { useAuthStore } from '../store/authStore'
 import type { CustomerProfile, ItemMaster } from '../types'
 
 type Tab = 'users' | 'usage' | 'tenants' | 'templates' | 'customer-profiles' | 'item-master'
+
+// ── 인앱 도움말 (인라인 힌트) ───────────────────────────────
+function HelpBox({ children }: { children: ReactNode }) {
+  return (
+    <div className="mb-4 flex gap-2 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+      <span className="shrink-0">💡</span>
+      <div className="space-y-1">{children}</div>
+    </div>
+  )
+}
+
+// 운영자 전용 — 새 고객사 온보딩 순서 (접이식 참조서)
+function OperatorGuide() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="card mb-6 bg-gray-50">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center justify-between text-left">
+        <span className="text-sm font-semibold text-gray-800">📖 사용법 — 새 고객사 온보딩 순서</span>
+        <span className="text-xs text-gray-400">{open ? '접기 ▲' : '펼치기 ▼'}</span>
+      </button>
+      {open && (
+        <ol className="mt-3 list-decimal list-inside space-y-1.5 text-sm text-gray-600">
+          <li><b>고객사 관리</b> 탭에서 회사를 등록합니다 (회사명·담당자 이메일).</li>
+          <li><b>계정 관리</b> 탭에서 그 고객사를 선택하고 <b>관리자 계정</b>을 발급합니다.</li>
+          <li>발급한 이메일·임시 비밀번호를 고객사 담당자에게 전달합니다.</li>
+          <li>고객사 관리자는 로그인 후 <b>자기 직원(매니저/직원)</b>을 직접 추가합니다.</li>
+          <li>(선택) <b>고객사 프로필·품목마스터</b>를 등록하면 납기 역산·Invoice 자동입력이 정확해집니다.</li>
+          <li>미납·서비스 중단·복구는 <b>사용량 리포트</b> 탭에서 관리합니다.</li>
+        </ol>
+      )}
+    </div>
+  )
+}
 
 // ── 사용량 탭 ──────────────────────────────────────────────
 function UsageTab() {
@@ -557,6 +590,18 @@ function UsersTab() {
         </button>
       </div>
 
+      {isSuper ? (
+        <HelpBox>
+          <p><b>계정 발급 순서:</b> ① 아래에서 고객사 선택 → ② <b>[+ 계정 발급]</b> → 이메일·비밀번호(8자 이상)·권한 입력 → ③ 발급한 로그인 정보를 고객사에 전달</p>
+          <p className="text-xs text-blue-700">고객사가 목록에 없으면 먼저 <b>고객사 관리</b> 탭에서 회사를 등록하세요. 셀프 가입은 없고, 계정은 운영자가 직접 발급합니다.</p>
+        </HelpBox>
+      ) : (
+        <HelpBox>
+          <p><b>직원 계정 발급:</b> <b>[+ 계정 발급]</b> → 이메일(로그인 ID)·비밀번호(8자 이상)·권한(매니저/직원) 입력 후 발급. 발급한 정보를 직원에게 전달하세요.</p>
+          <p className="text-xs text-blue-700">퇴사·휴직 직원은 오른쪽 <b>비활성화</b>로 로그인을 막을 수 있습니다(데이터는 보존). 관리자 권한 계정이 더 필요하면 운영사에 요청하세요.</p>
+        </HelpBox>
+      )}
+
       {isSuper && (
         <div className="card mb-4">
           <label className="block text-xs font-medium text-gray-600 mb-1">고객사 선택</label>
@@ -652,6 +697,7 @@ export default function Admin() {
           {isSuper ? '고객사 프로필, 품목마스터, 계정, 사용량을 관리합니다' : '직원 로그인 계정을 관리합니다'}
         </p>
       </div>
+      {isSuper && <OperatorGuide />}
       <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
         {TABS.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
