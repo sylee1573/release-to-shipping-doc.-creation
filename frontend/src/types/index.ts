@@ -148,3 +148,10 @@ export interface ItemMaster {
   created_at: string
   updated_at: string
 }
+
+export interface ItemMasterBulkResult {
+  total: number
+  created: number
+  skipped: number
+  errors: { row: number; message: string }[]
+}

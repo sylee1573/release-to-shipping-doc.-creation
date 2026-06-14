@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '../api/admin'
 import { useAuthStore } from '../store/authStore'
-import type { CustomerProfile, ItemMaster } from '../types'
+import type { CustomerProfile, ItemMaster, ItemMasterBulkResult } from '../types'
 
 type Tab = 'users' | 'usage' | 'tenants' | 'templates' | 'customer-profiles' | 'item-master'
 
@@ -389,11 +389,26 @@ function ItemMasterTab() {
   const [editing, setEditing] = useState<ItemMaster | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [filterCustomer, setFilterCustomer] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [bulkResult, setBulkResult] = useState<ItemMasterBulkResult | null>(null)
+  const [bulkErr, setBulkErr] = useState('')
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['item-master', filterCustomer],
     queryFn: () => adminApi.listItemMaster(filterCustomer || undefined),
   })
+
+  const bulkMutation = useMutation({
+    mutationFn: (file: File) => adminApi.bulkUploadItemMaster(file),
+    onSuccess: (res) => { setBulkResult(res); setBulkErr(''); qc.invalidateQueries({ queryKey: ['item-master'] }) },
+    onError: (e) => { setBulkResult(null); setBulkErr(e instanceof Error ? e.message : '업로드에 실패했습니다') },
+  })
+
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) bulkMutation.mutate(file)
+    e.target.value = ''  // 같은 파일 재선택 가능하도록 초기화
+  }
 
   const { data: profiles = [] } = useQuery({ queryKey: ['customer-profiles'], queryFn: () => adminApi.listCustomerProfiles() })
   const customerNames = [...new Set(profiles.map((p) => p.customer_name))]
@@ -491,9 +506,41 @@ function ItemMasterTab() {
           <p className="text-xs text-gray-500 mt-0.5">단가 · 중량 · 박스당 수량 — Invoice/Packing 자동 입력</p>
         </div>
         {!showForm && !editing && (
-          <button onClick={() => setShowForm(true)} className="btn-primary text-sm">+ 품목 등록</button>
+          <div className="flex gap-2">
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPickFile} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={bulkMutation.isPending}
+              className="btn-secondary text-sm"
+            >{bulkMutation.isPending ? '업로드 중…' : '📥 Excel 일괄 등록'}</button>
+            <button onClick={() => setShowForm(true)} className="btn-primary text-sm">+ 품목 등록</button>
+          </div>
         )}
       </div>
+
+      {/* Excel 일괄 등록 안내 + 결과 */}
+      {!showForm && !editing && (
+        <div className="mb-3 text-xs text-gray-400">
+          Excel 헤더 행에 <b className="text-gray-500">고객사명 · 품번</b> 필수. 인식 열: 품목설명 · 단가 · 개당 순중량 · 박스당 수량 · 파레트당 박스 수 · 파레트당 CBM (열 순서·여분 열 무관). 이미 있는 품번은 건너뜁니다.
+        </div>
+      )}
+      {bulkErr && <p className="text-sm text-red-600 mb-3">{bulkErr}</p>}
+      {bulkResult && (
+        <div className="card mb-4 border-l-4 border-green-400">
+          <p className="text-sm text-gray-800">
+            신규 <b className="text-green-700">{bulkResult.created}건</b> 등록 ·
+            중복 <b className="text-gray-600">{bulkResult.skipped}건</b> 건너뜀 ·
+            오류 <b className={bulkResult.errors.length ? 'text-red-600' : 'text-gray-600'}>{bulkResult.errors.length}건</b>
+            <span className="text-gray-400"> (총 {bulkResult.total}행)</span>
+          </p>
+          {bulkResult.errors.length > 0 && (
+            <ul className="mt-2 text-xs text-red-600 list-disc list-inside max-h-32 overflow-auto">
+              {bulkResult.errors.map((e, i) => <li key={i}>{e.row}행: {e.message}</li>)}
+            </ul>
+          )}
+          <button onClick={() => setBulkResult(null)} className="text-xs text-gray-400 underline mt-2">닫기</button>
+        </div>
+      )}
 
       {showForm && !editing && <FormFields isEdit={false} />}
       {editing && <FormFields isEdit={true} />}

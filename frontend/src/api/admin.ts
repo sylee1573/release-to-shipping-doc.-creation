@@ -2,6 +2,7 @@ import { api } from './client'
 import type {
   CustomerProfile,
   ItemMaster,
+  ItemMasterBulkResult,
   ParsingTemplate,
   Tenant,
   UsageReport,
@@ -116,4 +117,10 @@ export const adminApi = {
 
   deleteItemMaster: (id: string) =>
     api.delete<{ message: string }>(`/api/v1/admin/item-master/${id}`),
+
+  bulkUploadItemMaster: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.upload<ItemMasterBulkResult>('/api/v1/admin/item-master/bulk-upload', fd)
+  },
 }

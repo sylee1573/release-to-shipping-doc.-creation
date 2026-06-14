@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from models.item_master import ItemMaster
 from models.parsing_template import ParsingTemplate
 from models.tenant import Tenant
 from models.user import User
+from services import excel_service
 from schemas.admin import (
     AdminUserCreate,
     TemplateCreate,
@@ -489,3 +490,80 @@ async def delete_item_master(
     item.is_active = False
     await db.commit()
     return MessageResponse(message="삭제되었습니다")
+
+
+# ── 품목마스터 Excel 일괄 업로드 ──────────────────────────────────
+
+class ItemMasterBulkError(BaseModel):
+    row: int
+    message: str
+
+
+class ItemMasterBulkResult(BaseModel):
+    total: int          # 파싱된 데이터 행 수
+    created: int        # 신규 등록
+    skipped: int        # 중복(기존 또는 파일 내) 건너뜀
+    errors: list[ItemMasterBulkError]
+
+
+_BULK_ITEM_FIELDS = (
+    "description", "unit_price", "net_weight_per_pc", "gross_weight_per_pc",
+    "pcs_per_box", "boxes_per_pallet", "cbm_per_pallet",
+)
+
+
+@router.post("/item-master/bulk-upload", response_model=ItemMasterBulkResult, status_code=201)
+async def bulk_upload_item_master(
+    file: UploadFile = File(...),
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    fname = (file.filename or "").lower()
+    if not (fname.endswith(".xlsx") or fname.endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Excel(.xlsx, .xls) 파일만 지원합니다")
+
+    file_bytes = await file.read()
+    rows, error = excel_service.parse_item_master_rows(file_bytes, fname)
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    if not rows:
+        raise HTTPException(status_code=422, detail="등록할 데이터 행이 없습니다")
+
+    # 기존 (customer_name, part_number) 쌍 1회 조회 → 중복 판정용 set
+    existing_result = await db.execute(
+        select(ItemMaster.customer_name, ItemMaster.part_number).where(
+            ItemMaster.tenant_id == user.tenant_id,
+            ItemMaster.is_active == True,
+        )
+    )
+    seen: set[tuple[str, str]] = {(c, p) for c, p in existing_result.all()}
+
+    created = skipped = 0
+    errors: list[ItemMasterBulkError] = []
+    new_items: list[ItemMaster] = []
+
+    for item in rows:
+        cust = item.get("customer_name")
+        pn   = item.get("part_number")
+        if not cust or not pn:
+            errors.append(ItemMasterBulkError(row=item["row"], message="고객사명·품번은 필수입니다"))
+            continue
+        key = (cust, pn)
+        if key in seen:
+            skipped += 1
+            continue
+        seen.add(key)
+        new_items.append(ItemMaster(
+            tenant_id=user.tenant_id,
+            customer_name=cust,
+            part_number=pn,
+            ran_last=0,
+            **{f: item[f] for f in _BULK_ITEM_FIELDS if f in item},
+        ))
+        created += 1
+
+    if new_items:
+        db.add_all(new_items)
+        await db.commit()
+
+    return ItemMasterBulkResult(total=len(rows), created=created, skipped=skipped, errors=errors)
