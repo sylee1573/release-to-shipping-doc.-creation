@@ -24,7 +24,7 @@ export default function Login() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-brand-700">발주 자동화</h1>
-          <p className="text-sm text-gray-500 mt-1">자동차 부품사 발주 자동화 SaaS</p>
+          <p className="text-sm text-gray-500 mt-1">제조·무역 발주 문서 자동화 SaaS</p>
         </div>
 
         <div className="card">

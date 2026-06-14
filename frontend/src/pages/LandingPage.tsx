@@ -37,11 +37,11 @@ function AppMockup() {
 
         {/* Fields */}
         {[
-          { label: '품번', value: '85310-AA000', confidence: 0.97, y: 44 },
-          { label: '고객코드', value: 'HMC-001', confidence: 0.95, y: 84 },
+          { label: '품번', value: 'PRD-2045-A', confidence: 0.97, y: 44 },
+          { label: '고객코드', value: 'CUST-001', confidence: 0.95, y: 84 },
           { label: '수량', value: '500 EA', confidence: 0.88, y: 124 },
           { label: '납기일', value: '2026-06-30', confidence: 0.72, y: 164 },
-          { label: '납품처', value: '울산 1공장', confidence: 0.61, y: 204 },
+          { label: '납품처', value: '제1공장', confidence: 0.61, y: 204 },
         ].map(({ label, value, confidence, y }) => {
           const bg =
             confidence >= 0.9
@@ -134,7 +134,7 @@ const WHO_ITEMS = [
   '담당자 한 명이 여러 고객사 발주를 처리하는 경우',
   '발주 접수부터 생산의뢰 전달까지 시간이 걸리는 경우',
   '선적할 때마다 Invoice와 Packing List를 수작업으로 작성하는 경우',
-  '자동차부품, 전자부품, 기계, 금형 등 제조·무역 업종',
+  '전자, 기계, 금형, 부품 등 다양한 제조·무역 업종',
   '직원 30~200명 규모 중소 제조사',
 ]
 
