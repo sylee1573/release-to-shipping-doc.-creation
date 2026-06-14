@@ -387,26 +387,33 @@ async def generate_weekly_plan(
     holidays = {h.week_start_date: h.reason for h in holiday_result.scalars().all()}
 
     # 선적일 기준 4주 슬롯 구성
-    # 슬롯 1 = 이번 주(this_monday) 선적, 슬롯 4 = 3주 뒤 선적
-    # 이미 지난 선적(slot<1) 및 5주차+(slot>4)는 제외
+    # 슬롯 1 = "가장 가까운 미래 선적주"(anchor), 슬롯 4 = anchor+3주
+    # 이미 지난 선적(선적주 < 이번 주)은 제외, anchor 이후 5주차+(slot>4)도 제외
     # 동일 선적주에 납품이 여러 건이면 수량 합산
     today       = date.today()
     this_monday = _week_monday(today)
 
-    slots_map: dict[date, dict] = {}
-
+    # 1) 미래 선적만 추려 선적주 계산 (anchor 결정용)
+    prepared = []
     for entry in sorted(delivery_schedule, key=lambda x: x["date"]):
         try:
             d_date = date.fromisoformat(entry["date"])
             qty    = int(entry["quantity"])
         except (ValueError, KeyError):
             continue
-
         sailing, prod_end, _ = _calc_dates(d_date, cp)
         sailing_week_mon = _week_monday(sailing)
+        if sailing_week_mon < this_monday:
+            continue  # 이미 지난 선적주 제외
+        prepared.append((d_date, qty, sailing, prod_end, sailing_week_mon))
 
-        # 슬롯 번호: 이번 주 = 1, 다음 주 = 2, ... 4주 뒤 = 4
-        slot_num = (sailing_week_mon - this_monday).days // 7 + 1
+    # 2) anchor = 가장 가까운 미래 선적주 → 이 주가 1주차
+    anchor_monday = min((p[4] for p in prepared), default=None)
+
+    slots_map: dict[date, dict] = {}
+    for d_date, qty, sailing, prod_end, sailing_week_mon in prepared:
+        # 슬롯 번호: anchor 주 = 1, 그 다음 주 = 2, ... anchor+3주 = 4
+        slot_num = (sailing_week_mon - anchor_monday).days // 7 + 1
         if slot_num < 1 or slot_num > 4:
             continue
 
