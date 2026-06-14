@@ -187,7 +187,7 @@ async def download_shipment_doc(
             "net_weight_per_pc": float(item_master.net_weight_per_pc) if item_master and item_master.net_weight_per_pc else None,
             "gross_weight_per_pc": float(item_master.gross_weight_per_pc) if item_master and item_master.gross_weight_per_pc else None,
             "pcs_per_box":       item_master.pcs_per_box if item_master else None,
-            "boxes_per_pallet":  item_master.boxes_per_pallet if item_master else None,
+            "boxes_per_pallet":  (item_master.boxes_per_pallet if item_master and item_master.boxes_per_pallet else None) or (cp.boxes_per_pallet if cp else None),
             "cbm_per_pallet":       float(item_master.cbm_per_pallet) if item_master and item_master.cbm_per_pallet else None,
             "po_number":         conf.get("po_number", header["po_number"]),
             "ran_number":        pr.ran_number if pr and pr.ran_number else "",

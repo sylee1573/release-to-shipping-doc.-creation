@@ -241,7 +241,7 @@ function TemplatesTab() {
 // ── 고객사 프로필 탭 ────────────────────────────────────────
 function CustomerProfilesTab() {
   const qc = useQueryClient()
-  const BLANK: { customer_name: string; date_type: 'arrival' | 'completion'; ship_to_name: string; ship_to_address: string; final_destination: string; sea_transit_days: number; shipping_prep_days: number; production_lead_days: number } = { customer_name: '', date_type: 'arrival', ship_to_name: '', ship_to_address: '', final_destination: '', sea_transit_days: 21, shipping_prep_days: 2, production_lead_days: 7 }
+  const BLANK: { customer_name: string; date_type: 'arrival' | 'completion'; ship_to_name: string; ship_to_address: string; final_destination: string; sea_transit_days: number; shipping_prep_days: number; production_lead_days: number; boxes_per_pallet: number | '' } = { customer_name: '', date_type: 'arrival', ship_to_name: '', ship_to_address: '', final_destination: '', sea_transit_days: 21, shipping_prep_days: 2, production_lead_days: 7, boxes_per_pallet: '' }
   const [form, setForm] = useState(BLANK)
   const [editing, setEditing] = useState<CustomerProfile | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -249,12 +249,12 @@ function CustomerProfilesTab() {
   const { data: profiles = [], isLoading } = useQuery({ queryKey: ['customer-profiles'], queryFn: () => adminApi.listCustomerProfiles() })
 
   const createMutation = useMutation({
-    mutationFn: () => adminApi.createCustomerProfile({ ...form, ship_to_name: form.ship_to_name || undefined, ship_to_address: form.ship_to_address || undefined, final_destination: form.final_destination || undefined }),
+    mutationFn: () => adminApi.createCustomerProfile({ ...form, ship_to_name: form.ship_to_name || undefined, ship_to_address: form.ship_to_address || undefined, final_destination: form.final_destination || undefined, boxes_per_pallet: form.boxes_per_pallet ? Number(form.boxes_per_pallet) : undefined }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['customer-profiles'] }); setForm(BLANK); setShowForm(false) },
   })
 
   const updateMutation = useMutation({
-    mutationFn: (cp: CustomerProfile) => adminApi.updateCustomerProfile(cp.id, { date_type: form.date_type, ship_to_name: form.ship_to_name || undefined, ship_to_address: form.ship_to_address || undefined, final_destination: form.final_destination || undefined, sea_transit_days: form.sea_transit_days, shipping_prep_days: form.shipping_prep_days, production_lead_days: form.production_lead_days }),
+    mutationFn: (cp: CustomerProfile) => adminApi.updateCustomerProfile(cp.id, { date_type: form.date_type, ship_to_name: form.ship_to_name || undefined, ship_to_address: form.ship_to_address || undefined, final_destination: form.final_destination || undefined, sea_transit_days: form.sea_transit_days, shipping_prep_days: form.shipping_prep_days, production_lead_days: form.production_lead_days, boxes_per_pallet: form.boxes_per_pallet ? Number(form.boxes_per_pallet) : undefined }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['customer-profiles'] }); setEditing(null) },
   })
 
@@ -265,7 +265,7 @@ function CustomerProfilesTab() {
 
   const startEdit = (cp: CustomerProfile) => {
     setEditing(cp)
-    setForm({ customer_name: cp.customer_name, date_type: cp.date_type, ship_to_name: cp.ship_to_name ?? '', ship_to_address: cp.ship_to_address ?? '', final_destination: cp.final_destination ?? '', sea_transit_days: cp.sea_transit_days, shipping_prep_days: cp.shipping_prep_days, production_lead_days: cp.production_lead_days })
+    setForm({ customer_name: cp.customer_name, date_type: cp.date_type, ship_to_name: cp.ship_to_name ?? '', ship_to_address: cp.ship_to_address ?? '', final_destination: cp.final_destination ?? '', sea_transit_days: cp.sea_transit_days, shipping_prep_days: cp.shipping_prep_days, production_lead_days: cp.production_lead_days, boxes_per_pallet: cp.boxes_per_pallet ?? '' })
   }
 
   const FormPanel = ({ isEdit }: { isEdit: boolean }) => (
@@ -296,6 +296,11 @@ function CustomerProfilesTab() {
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">최종 목적지 (Final Destination)</label>
           <input className="input" value={form.final_destination} onChange={(e) => setForm({ ...form, final_destination: e.target.value })} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">파레트당 박스 수</label>
+          <input className="input" type="number" min={1} value={form.boxes_per_pallet} onChange={(e) => setForm({ ...form, boxes_per_pallet: e.target.value ? Number(e.target.value) : '' })} placeholder="예: 24" />
+          <p className="text-xs text-gray-400 mt-0.5">Packing List CBM = 파레트수 × 1.21 (품목마스터에 값 없을 때 폴백)</p>
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
@@ -379,7 +384,7 @@ function CustomerProfilesTab() {
 // ── 품목마스터 탭 ───────────────────────────────────────────
 function ItemMasterTab() {
   const qc = useQueryClient()
-  const BLANK = { customer_name: '', part_number: '', description: '', unit_price: '', net_weight_per_pc: '', pcs_per_box: '' }
+  const BLANK = { customer_name: '', part_number: '', description: '', unit_price: '', net_weight_per_pc: '', pcs_per_box: '', boxes_per_pallet: '' }
   const [form, setForm] = useState(BLANK)
   const [editing, setEditing] = useState<ItemMaster | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -400,6 +405,7 @@ function ItemMasterTab() {
       unit_price: form.unit_price ? Number(form.unit_price) : undefined,
       net_weight_per_pc: form.net_weight_per_pc ? Number(form.net_weight_per_pc) : undefined,
       pcs_per_box: form.pcs_per_box ? Number(form.pcs_per_box) : undefined,
+      boxes_per_pallet: form.boxes_per_pallet ? Number(form.boxes_per_pallet) : undefined,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['item-master'] }); setForm(BLANK); setShowForm(false) },
   })
@@ -410,6 +416,7 @@ function ItemMasterTab() {
       unit_price: form.unit_price ? Number(form.unit_price) : undefined,
       net_weight_per_pc: form.net_weight_per_pc ? Number(form.net_weight_per_pc) : undefined,
       pcs_per_box: form.pcs_per_box ? Number(form.pcs_per_box) : undefined,
+      boxes_per_pallet: form.boxes_per_pallet ? Number(form.boxes_per_pallet) : undefined,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['item-master'] }); setEditing(null) },
   })
@@ -421,7 +428,7 @@ function ItemMasterTab() {
 
   const startEdit = (item: ItemMaster) => {
     setEditing(item)
-    setForm({ customer_name: item.customer_name, part_number: item.part_number, description: item.description ?? '', unit_price: item.unit_price != null ? String(item.unit_price) : '', net_weight_per_pc: item.net_weight_per_pc != null ? String(item.net_weight_per_pc) : '', pcs_per_box: item.pcs_per_box != null ? String(item.pcs_per_box) : '' })
+    setForm({ customer_name: item.customer_name, part_number: item.part_number, description: item.description ?? '', unit_price: item.unit_price != null ? String(item.unit_price) : '', net_weight_per_pc: item.net_weight_per_pc != null ? String(item.net_weight_per_pc) : '', pcs_per_box: item.pcs_per_box != null ? String(item.pcs_per_box) : '', boxes_per_pallet: item.boxes_per_pallet != null ? String(item.boxes_per_pallet) : '' })
   }
 
   const FormFields = ({ isEdit }: { isEdit: boolean }) => (
@@ -458,6 +465,11 @@ function ItemMasterTab() {
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">박스당 수량 (pcs)</label>
           <input className="input" type="number" value={form.pcs_per_box} onChange={(e) => setForm({ ...form, pcs_per_box: e.target.value })} placeholder="200" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">파레트당 박스 수</label>
+          <input className="input" type="number" value={form.boxes_per_pallet} onChange={(e) => setForm({ ...form, boxes_per_pallet: e.target.value })} placeholder="24" />
+          <p className="text-xs text-gray-400 mt-0.5">Packing CBM = 파레트수 × 1.21</p>
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-3">

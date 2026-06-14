@@ -246,6 +246,7 @@ class CustomerProfileCreate(BaseModel):
     sea_transit_days: int = 21           # 해상 운송일수
     shipping_prep_days: int = 2          # 출하 준비일수
     production_lead_days: int = 7        # 생산 리드타임
+    boxes_per_pallet: int | None = None  # 파레트당 박스 수 (Packing CBM 폴백)
 
 
 class CustomerProfileUpdate(BaseModel):
@@ -256,6 +257,7 @@ class CustomerProfileUpdate(BaseModel):
     sea_transit_days: int | None = None
     shipping_prep_days: int | None = None
     production_lead_days: int | None = None
+    boxes_per_pallet: int | None = None
 
 
 class CustomerProfileResponse(BaseModel):
@@ -269,6 +271,7 @@ class CustomerProfileResponse(BaseModel):
     sea_transit_days: int
     shipping_prep_days: int
     production_lead_days: int
+    boxes_per_pallet: int | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -307,6 +310,7 @@ async def create_customer_profile(
         sea_transit_days=body.sea_transit_days,
         shipping_prep_days=body.shipping_prep_days,
         production_lead_days=body.production_lead_days,
+        boxes_per_pallet=body.boxes_per_pallet,
     )
     db.add(cp)
     await db.commit()
@@ -340,6 +344,8 @@ async def update_customer_profile(
         cp.shipping_prep_days = body.shipping_prep_days
     if body.production_lead_days is not None:
         cp.production_lead_days = body.production_lead_days
+    if body.boxes_per_pallet is not None:
+        cp.boxes_per_pallet = body.boxes_per_pallet
     await db.commit()
     await db.refresh(cp)
     return cp

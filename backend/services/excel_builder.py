@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 # 루트 inv.packing_ex/ 는 git 미추적이라 배포본에 없었음 → 다운로드 500의 원인이었음.
 TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "KCR26-06.xlsx"
 
+# 파레트 1개당 CBM(부피, m³) 표준값 — Packing List CBM = 파레트수 × 이 값
+CBM_PER_PALLET = 1.21
+
 SENDER_NAME = "KYUNG CHANG PRECISION IND. CO., LTD."
 SENDER_ADDRESS = "149 Gukgasandan-daero 33-gil, Guji-myeon, Dalseong-gun, Daegu"
 SENDER_TEL = "82-53-589-0133"
@@ -367,7 +370,9 @@ def build_packing_list(header: dict, items: list[dict] | None = None) -> bytes:
                 gross_total = round(float(net_total) * 1.023, 3)
             else:
                 gross_total = ""
-            cbm_total = round(float(cbm_per_pallet) * int(plt_count), 4) if (cbm_per_pallet and plt_count != "") else ""
+            # CBM = 파레트수 × 파레트당 CBM(품목에 지정값 있으면 우선, 없으면 표준 1.21)
+            cbm_rate  = float(cbm_per_pallet) if cbm_per_pallet else CBM_PER_PALLET
+            cbm_total = round(cbm_rate * int(plt_count), 4) if plt_count != "" else ""
         except (ValueError, TypeError):
             qty_num, box_count, net_total, gross_total, cbm_total = qty, "", "", "", ""
 

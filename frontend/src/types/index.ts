@@ -127,6 +127,7 @@ export interface CustomerProfile {
   sea_transit_days: number
   shipping_prep_days: number
   production_lead_days: number
+  boxes_per_pallet: number | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -141,6 +142,7 @@ export interface ItemMaster {
   unit_price: number | null
   net_weight_per_pc: number | null
   pcs_per_box: number | null
+  boxes_per_pallet: number | null
   ran_last: number
   is_active: boolean
   created_at: string

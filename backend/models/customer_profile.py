@@ -30,6 +30,9 @@ class CustomerProfile(Base):
     shipping_prep_days: Mapped[int] = mapped_column(Integer, default=2)   # 출하 준비일수 (선적일→생산완료일)
     production_lead_days: Mapped[int] = mapped_column(Integer, default=7) # 생산 리드타임
 
+    # Packing List 물류 기본값 (품목마스터에 값 없을 때 폴백)
+    boxes_per_pallet: Mapped[int | None] = mapped_column(Integer)         # 파레트당 박스 수
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

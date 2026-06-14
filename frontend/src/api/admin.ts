@@ -73,6 +73,7 @@ export const adminApi = {
     sea_transit_days: number
     shipping_prep_days: number
     production_lead_days: number
+    boxes_per_pallet?: number
   }) => api.post<CustomerProfile>('/api/v1/admin/customer-profiles', body),
 
   updateCustomerProfile: (id: string, body: {
@@ -83,6 +84,7 @@ export const adminApi = {
     sea_transit_days?: number
     shipping_prep_days?: number
     production_lead_days?: number
+    boxes_per_pallet?: number
   }) => api.put<CustomerProfile>(`/api/v1/admin/customer-profiles/${id}`, body),
 
   deleteCustomerProfile: (id: string) =>
@@ -101,6 +103,7 @@ export const adminApi = {
     unit_price?: number
     net_weight_per_pc?: number
     pcs_per_box?: number
+    boxes_per_pallet?: number
   }) => api.post<ItemMaster>('/api/v1/admin/item-master', body),
 
   updateItemMaster: (id: string, body: {
@@ -108,6 +111,7 @@ export const adminApi = {
     unit_price?: number
     net_weight_per_pc?: number
     pcs_per_box?: number
+    boxes_per_pallet?: number
   }) => api.put<ItemMaster>(`/api/v1/admin/item-master/${id}`, body),
 
   deleteItemMaster: (id: string) =>
