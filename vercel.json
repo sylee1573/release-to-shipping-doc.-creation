@@ -1,5 +1,8 @@
 {
   "outputDirectory": "frontend/dist",
+  "git": {
+    "deploymentEnabled": false
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
