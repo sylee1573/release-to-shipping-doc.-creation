@@ -39,17 +39,12 @@ function weekMondayISO(isoDate: string): string {
   return addDaysISO(isoDate, daysToMon)
 }
 
-// 표시된 PR들의 "가장 가까운 미래 선적주"를 1주차로 4주 컬럼 구성.
-// 선적이 하나도 없으면 이번 주 월요일 기준 (백엔드 anchor 로직과 동일).
-function getFourWeekMondays(items: ProductionRequest[]): string[] {
+// 업로드(오늘)의 "다음 주 월요일"부터 4주 (백엔드 anchor 로직과 동일).
+function getFourWeekMondays(): string[] {
   const todayISO = new Date().toISOString().slice(0, 10)
   const thisMon  = weekMondayISO(todayISO)
-  const futureMondays = items
-    .flatMap((p) => p.weekly_schedule ?? [])
-    .map((s) => s.sailing_week_monday)
-    .filter((m): m is string => !!m && m >= thisMon)
-  const anchor = futureMondays.length ? futureMondays.reduce((a, b) => (a < b ? a : b)) : thisMon
-  return [0, 1, 2, 3].map((i) => addDaysISO(anchor, i * 7))
+  const nextMon  = addDaysISO(thisMon, 7)   // 업로드 다음 주 = 1주차
+  return [0, 1, 2, 3].map((i) => addDaysISO(nextMon, i * 7))
 }
 
 function formatWeekHeader(isoDate: string): string {
@@ -110,7 +105,7 @@ export default function ProductionList() {
     (name ?? '').trim().toUpperCase() || '(고객사 미상)'
 
   // fourMondays는 return 안에서도 동일하게 참조하므로 여기서 미리 계산
-  const fourMondays = getFourWeekMondays(items)
+  const fourMondays = getFourWeekMondays()
 
   // 해당 선적주(인덱스)에 선택된 PR 중 선적 있는지
   const weekHasShipment = (idx: number) =>
