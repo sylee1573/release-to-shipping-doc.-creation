@@ -86,6 +86,18 @@ export default function ProductionList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['production'] }),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => productionApi.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['production'] }),
+    onError: (e) => alert(e instanceof Error ? e.message : '삭제에 실패했습니다'),
+  })
+
+  const handleDelete = (pr: ProductionRequest) => {
+    if (window.confirm(`${pr.request_number ?? '생산의뢰서'}를 삭제할까요? 되돌릴 수 없습니다.`)) {
+      deleteMutation.mutate(pr.id)
+    }
+  }
+
   const downloadShipmentDoc = async (docId: string, docNumber: string) => {
     try {
       const res = await fetch(shipmentApi.downloadUrl(docId), {
@@ -316,6 +328,14 @@ export default function ProductionList() {
                             title="Excel 다운로드"
                           >
                             📥
+                          </button>
+                          <button
+                            onClick={() => handleDelete(pr)}
+                            disabled={deleteMutation.isPending}
+                            className="text-[10px] text-red-500 hover:text-red-700 hover:underline"
+                            title="삭제"
+                          >
+                            삭제
                           </button>
                         </div>
                       </td>

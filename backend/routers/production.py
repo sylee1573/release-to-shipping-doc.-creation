@@ -15,7 +15,9 @@ from models.holiday_calendar import HolidayCalendar
 from models.item_master import ItemMaster
 from models.order import Order
 from models.production_request import ProductionRequest
+from models.shipment_doc import ShipmentDoc
 from models.user import User
+from schemas.common import MessageResponse
 from schemas.production import (
     ProductionCreate,
     ProductionResponse,
@@ -287,6 +289,33 @@ async def update_production_status(
     await db.refresh(pr)
     order = await db.get(Order, pr.order_id)
     return ProductionResponse(**_to_response(pr, order.customer_name if order else None))
+
+
+@router.delete("/{pr_id}", response_model=MessageResponse)
+async def delete_production_request(
+    pr_id: uuid.UUID,
+    user: User = Depends(require_active_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    pr = await db.get(ProductionRequest, pr_id)
+    if not pr or pr.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="생산의뢰서를 찾을 수 없습니다")
+
+    # 선적서류가 연결된 PR은 삭제 거부 (데이터 보호)
+    cnt = await db.execute(
+        select(func.count()).select_from(ShipmentDoc).where(
+            ShipmentDoc.production_request_id == pr_id
+        )
+    )
+    if cnt.scalar_one() > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="선적서류가 연결된 생산의뢰서는 삭제할 수 없습니다",
+        )
+
+    await db.delete(pr)
+    await db.commit()
+    return MessageResponse(message="삭제되었습니다")
 
 
 @router.get("/{pr_id}/download")

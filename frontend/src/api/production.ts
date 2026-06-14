@@ -27,5 +27,8 @@ export const productionApi = {
   updateStatus: (id: string, status: string) =>
     api.patch<ProductionRequest>(`/api/v1/production/${id}/status`, { status }),
 
+  remove: (id: string) =>
+    api.delete<{ message: string }>(`/api/v1/production/${id}`),
+
   downloadUrl: (id: string) => `${BASE_URL}/api/v1/production/${id}/download`,
 }
