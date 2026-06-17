@@ -32,16 +32,27 @@ function OperatorGuide() {
           <li>발급한 이메일·임시 비밀번호를 고객사 담당자에게 전달합니다.</li>
           <li>고객사 관리자는 로그인 후 <b>자기 직원(매니저/직원)</b>을 직접 추가합니다.</li>
           <li>(선택) <b>고객사 프로필·품목마스터</b>를 등록하면 납기 역산·Invoice 자동입력이 정확해집니다.</li>
-          <li>미납·서비스 중단·복구는 <b>사용량 리포트</b> 탭에서 관리합니다.</li>
+          <li><b>고객사 관리</b> 탭에서 고객사별 <b>월정액</b>을 설정합니다 (정액제 청구 기준).</li>
+          <li>청구·입금확인·미납 중단·복구는 <b>사용량·청구</b> 탭에서 관리합니다.</li>
         </ol>
       )}
     </div>
   )
 }
 
-// ── 사용량 탭 ──────────────────────────────────────────────
+// 직전 달 'YYYY-MM' (인보이스 발행 기본값)
+function prevMonthStr() {
+  const d = new Date()
+  d.setDate(1)
+  d.setMonth(d.getMonth() - 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+// ── 사용량·청구 탭 ──────────────────────────────────────────
 function UsageTab() {
   const [month, setMonth] = useState('')
+  const [issueMonth, setIssueMonth] = useState(prevMonthStr())
+  const [genMsg, setGenMsg] = useState('')
   const qc = useQueryClient()
 
   const { data: usage = [], isLoading } = useQuery({
@@ -54,10 +65,44 @@ function UsageTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-usage'] }),
   })
 
+  const payMutation = useMutation({
+    mutationFn: (invoiceId: string) => adminApi.markInvoicePaid(invoiceId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-usage'] }),
+  })
+
+  const generateMutation = useMutation({
+    mutationFn: () => adminApi.generateInvoices(issueMonth),
+    onSuccess: (res) => {
+      setGenMsg(`${res.billing_month} 인보이스 — 신규 ${res.created}건 발행, ${res.skipped}건 건너뜀(이미 발행)`)
+      qc.invalidateQueries({ queryKey: ['admin-usage'] })
+    },
+    onError: (e) => setGenMsg(e instanceof Error ? e.message : '발행에 실패했습니다'),
+  })
+
   return (
     <>
+      <HelpBox>
+        <p><b>정액제 청구 — 사용법</b></p>
+        <p>① <b>고객사 관리</b> 탭에서 고객사별 <b>월정액</b>을 설정합니다. (월정액이 설정된 고객사만 청구 대상)</p>
+        <p>② 아래 <b>인보이스 발행</b>에서 청구할 <b>월을 선택</b>하고 <b>[인보이스 발행]</b>을 누릅니다. 월정액 설정된 모든 고객사에 인보이스가 한 번에 생성됩니다. (이미 발행된 건은 자동으로 건너뜀)</p>
+        <p>③ 매월 1일이면 <b>직전 달분이 자동 발행</b>되므로, 수동 발행은 과거분 보충·재확인용입니다.</p>
+        <p>④ 계좌이체로 입금되면 해당 행의 <b>[입금확인]</b>을 눌러 <b>납부완료</b> 처리합니다.</p>
+        <p className="text-xs text-blue-700">미납 시 발행일+14일이 납부기한이며, 기한 초과 시 자동으로 경고 발송(D+30/37/44) → D+45 서비스 중단됩니다. 입금 후 <b>[서비스 복구]</b>로 즉시 복구할 수 있습니다.</p>
+      </HelpBox>
+
       <div className="card mb-6">
-        <h2 className="font-semibold text-gray-800 mb-3">사용량 리포트</h2>
+        <h2 className="font-semibold text-gray-800 mb-1">인보이스 발행</h2>
+        <p className="text-xs text-gray-500 mb-3">청구할 월을 선택하고 발행하세요. 월정액이 설정된 고객사 전체에 인보이스가 생성됩니다.</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <input type="month" className="input w-44" value={issueMonth} onChange={(e) => setIssueMonth(e.target.value)} />
+          <button onClick={() => generateMutation.mutate()} disabled={!issueMonth || generateMutation.isPending}
+            className="btn-primary text-sm">{generateMutation.isPending ? '발행 중…' : '인보이스 발행'}</button>
+          {genMsg && <span className="text-sm text-gray-600">{genMsg}</span>}
+        </div>
+      </div>
+
+      <div className="card mb-3">
+        <h2 className="font-semibold text-gray-800 mb-3">청구 현황</h2>
         <div className="flex items-center gap-3">
           <input type="month" className="input w-44" value={month} onChange={(e) => setMonth(e.target.value)} />
           <span className="text-sm text-gray-500">{month ? `${month} 기준` : '전체 기간'}</span>
@@ -66,7 +111,7 @@ function UsageTab() {
       <div className="card overflow-hidden p-0">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
-            <tr>{['고객사', '청구 월', '처리 건수', '금액', '상태', '복구'].map((h) => (
+            <tr>{['고객사', '청구 월', '금액', '납부기한', '상태', '관리'].map((h) => (
               <th key={h} className="px-4 py-3 text-left font-semibold text-gray-600 text-xs">{h}</th>
             ))}</tr>
           </thead>
@@ -74,13 +119,13 @@ function UsageTab() {
             {isLoading ? (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">불러오는 중...</td></tr>
             ) : usage.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">데이터가 없습니다</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">발행된 인보이스가 없습니다</td></tr>
             ) : usage.map((row) => (
-              <tr key={`${row.tenant_id}-${row.billing_month}`} className="hover:bg-gray-50">
+              <tr key={row.invoice_id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{row.tenant_name}</td>
                 <td className="px-4 py-3 text-gray-600">{row.billing_month}</td>
-                <td className="px-4 py-3 text-gray-600">{row.unit_count}건</td>
                 <td className="px-4 py-3 text-gray-600">{row.amount != null ? `₩${row.amount.toLocaleString()}` : '—'}</td>
+                <td className="px-4 py-3 text-gray-600">{row.due_date}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     row.status === 'paid' ? 'bg-green-100 text-green-700'
@@ -92,10 +137,16 @@ function UsageTab() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  {row.status === 'suspended' && (
-                    <button onClick={() => restoreMutation.mutate(row.tenant_id)} disabled={restoreMutation.isPending}
-                      className="text-xs text-brand-600 hover:underline font-medium">서비스 복구</button>
-                  )}
+                  <div className="flex gap-3">
+                    {row.status !== 'paid' && (
+                      <button onClick={() => payMutation.mutate(row.invoice_id)} disabled={payMutation.isPending}
+                        className="text-xs text-brand-600 hover:underline font-medium">입금확인</button>
+                    )}
+                    {row.status === 'suspended' && (
+                      <button onClick={() => restoreMutation.mutate(row.tenant_id)} disabled={restoreMutation.isPending}
+                        className="text-xs text-green-600 hover:underline font-medium">서비스 복구</button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -109,14 +160,21 @@ function UsageTab() {
 // ── 고객사 탭 ──────────────────────────────────────────────
 function TenantsTab() {
   const qc = useQueryClient()
-  const [form, setForm] = useState({ name: '', contact_email: '', business_number: '', contact_phone: '' })
+  const [form, setForm] = useState({ name: '', contact_email: '', business_number: '', contact_phone: '', monthly_fee: '' })
   const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editFee, setEditFee] = useState('')
 
   const { data: tenants = [], isLoading } = useQuery({ queryKey: ['admin-tenants'], queryFn: () => adminApi.listTenants() })
 
   const createMutation = useMutation({
-    mutationFn: () => adminApi.createTenant({ name: form.name, contact_email: form.contact_email, business_number: form.business_number || undefined, contact_phone: form.contact_phone || undefined }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-tenants'] }); setForm({ name: '', contact_email: '', business_number: '', contact_phone: '' }); setShowForm(false) },
+    mutationFn: () => adminApi.createTenant({ name: form.name, contact_email: form.contact_email, business_number: form.business_number || undefined, contact_phone: form.contact_phone || undefined, monthly_fee: form.monthly_fee ? Number(form.monthly_fee) : undefined }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-tenants'] }); setForm({ name: '', contact_email: '', business_number: '', contact_phone: '', monthly_fee: '' }); setShowForm(false) },
+  })
+
+  const feeMutation = useMutation({
+    mutationFn: (p: { id: string; fee: number | null }) => adminApi.updateTenant(p.id, { monthly_fee: p.fee }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-tenants'] }); setEditId(null) },
   })
 
   return (
@@ -133,6 +191,7 @@ function TenantsTab() {
             <div><label className="block text-xs font-medium text-gray-600 mb-1">담당자 이메일 *</label><input className="input" type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></div>
             <div><label className="block text-xs font-medium text-gray-600 mb-1">사업자번호</label><input className="input" value={form.business_number} onChange={(e) => setForm({ ...form, business_number: e.target.value })} /></div>
             <div><label className="block text-xs font-medium text-gray-600 mb-1">연락처</label><input className="input" value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></div>
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">월정액 (₩)</label><input className="input" type="number" min={0} value={form.monthly_fee} onChange={(e) => setForm({ ...form, monthly_fee: e.target.value })} placeholder="예: 300000" /><p className="text-xs text-gray-400 mt-0.5">정액제 월 청구액. 비워두면 인보이스 미발행.</p></div>
           </div>
           <div className="flex justify-end mt-3">
             <button onClick={() => createMutation.mutate()} disabled={!form.name || !form.contact_email || createMutation.isPending} className="btn-primary text-sm">등록</button>
@@ -142,7 +201,7 @@ function TenantsTab() {
       <div className="card overflow-hidden p-0">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
-            <tr>{['회사명', '사업자번호', '담당자 이메일', '연락처', '상태'].map((h) => (
+            <tr>{['회사명', '사업자번호', '담당자 이메일', '월정액', '상태'].map((h) => (
               <th key={h} className="px-4 py-3 text-left font-semibold text-gray-600 text-xs">{h}</th>
             ))}</tr>
           </thead>
@@ -156,7 +215,22 @@ function TenantsTab() {
                 <td className="px-4 py-3 font-medium text-gray-900">{t.name}</td>
                 <td className="px-4 py-3 text-gray-500 font-mono text-xs">{t.business_number ?? '—'}</td>
                 <td className="px-4 py-3 text-gray-600">{t.contact_email}</td>
-                <td className="px-4 py-3 text-gray-500">{t.contact_phone ?? '—'}</td>
+                <td className="px-4 py-3 text-gray-600">
+                  {editId === t.id ? (
+                    <div className="flex items-center gap-2">
+                      <input className="input w-28 py-1 text-xs" type="number" min={0} value={editFee} onChange={(e) => setEditFee(e.target.value)} autoFocus />
+                      <button onClick={() => feeMutation.mutate({ id: t.id, fee: editFee ? Number(editFee) : null })} disabled={feeMutation.isPending}
+                        className="text-xs text-brand-600 hover:underline font-medium">저장</button>
+                      <button onClick={() => setEditId(null)} className="text-xs text-gray-400 hover:underline">취소</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span>{t.monthly_fee != null ? `₩${t.monthly_fee.toLocaleString()}` : '미설정'}</span>
+                      <button onClick={() => { setEditId(t.id); setEditFee(t.monthly_fee != null ? String(t.monthly_fee) : '') }}
+                        className="text-xs text-brand-600 hover:underline">수정</button>
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {t.is_active ? '정상' : '중단'}
@@ -743,7 +817,7 @@ export default function Admin() {
         { key: 'users',             label: '계정 관리' },
         { key: 'customer-profiles', label: '고객사 프로필' },
         { key: 'item-master',       label: '품목마스터' },
-        { key: 'usage',             label: '사용량 리포트' },
+        { key: 'usage',             label: '사용량·청구' },
         { key: 'tenants',           label: '고객사 관리' },
         { key: 'templates',         label: '양식 템플릿' },
       ]

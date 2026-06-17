@@ -36,6 +36,13 @@ export const adminApi = {
   restoreTenant: (tenantId: string) =>
     api.patch<{ message: string }>(`/api/v1/admin/tenants/${tenantId}/restore`),
 
+  generateInvoices: (billingMonth: string) =>
+    api.post<{ billing_month: string; created: number; skipped: number }>(
+      '/api/v1/admin/invoices/generate', { billing_month: billingMonth }),
+
+  markInvoicePaid: (invoiceId: string) =>
+    api.patch<{ message: string }>(`/api/v1/admin/invoices/${invoiceId}/pay`),
+
   listTenants: () =>
     api.get<Tenant[]>('/api/v1/admin/tenants'),
 
@@ -44,7 +51,15 @@ export const adminApi = {
     business_number?: string
     contact_email: string
     contact_phone?: string
+    monthly_fee?: number
   }) => api.post<Tenant>('/api/v1/admin/tenants', body),
+
+  updateTenant: (tenantId: string, body: {
+    business_number?: string
+    contact_email?: string
+    contact_phone?: string
+    monthly_fee?: number | null
+  }) => api.patch<Tenant>(`/api/v1/admin/tenants/${tenantId}`, body),
 
   listTemplates: (tenantId?: string) => {
     const qs = tenantId ? `?tenant_id=${tenantId}` : ''
