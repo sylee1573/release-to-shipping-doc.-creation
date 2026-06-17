@@ -15,13 +15,16 @@ from models.item_master import ItemMaster
 from models.parsing_template import ParsingTemplate
 from models.tenant import Tenant
 from models.user import User
-from services import excel_service
+from services import billing_service, excel_service
 from schemas.admin import (
     AdminUserCreate,
+    InvoiceGenerate,
+    InvoiceGenerateResult,
     TemplateCreate,
     TemplateResponse,
     TenantCreate,
     TenantResponse,
+    TenantUpdate,
     UsageReport,
     UserActiveUpdate,
 )
@@ -41,12 +44,15 @@ async def get_usage(
 ):
     query = (
         select(
+            Invoice.id.label("invoice_id"),
             Invoice.tenant_id,
             Tenant.name.label("tenant_name"),
             Invoice.billing_month,
             Invoice.unit_count,
             Invoice.amount,
             Invoice.status,
+            Invoice.due_date,
+            Invoice.paid_at,
         )
         .join(Tenant, Tenant.id == Invoice.tenant_id)
     )
@@ -56,15 +62,45 @@ async def get_usage(
     rows = result.all()
     return [
         UsageReport(
+            invoice_id=r.invoice_id,
             tenant_id=r.tenant_id,
             tenant_name=r.tenant_name,
             billing_month=r.billing_month,
             unit_count=r.unit_count,
             amount=r.amount,
             status=r.status,
+            due_date=r.due_date,
+            paid_at=r.paid_at,
         )
         for r in rows
     ]
+
+
+@router.post("/invoices/generate", response_model=InvoiceGenerateResult)
+async def generate_invoices(
+    body: InvoiceGenerate,
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """선택한 월에 대해 정액 인보이스 발행 (월정액 설정된 고객사 대상, 중복 자동 제외)."""
+    result = await billing_service.generate_invoices_for_month(db, body.billing_month)
+    return InvoiceGenerateResult(**result)
+
+
+@router.patch("/invoices/{invoice_id}/pay", response_model=MessageResponse)
+async def mark_invoice_paid(
+    invoice_id: uuid.UUID,
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """입금 확인 — 인보이스를 납부완료 처리."""
+    invoice = await db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="인보이스를 찾을 수 없습니다")
+    invoice.paid_at = datetime.now(timezone.utc)
+    invoice.status = "paid"
+    await db.commit()
+    return MessageResponse(message="입금이 확인되었습니다")
 
 
 @router.patch("/tenants/{tenant_id}/restore", response_model=MessageResponse)
@@ -102,8 +138,26 @@ async def create_tenant(
         business_number=body.business_number,
         contact_email=body.contact_email,
         contact_phone=body.contact_phone,
+        monthly_fee=body.monthly_fee,
     )
     db.add(tenant)
+    await db.commit()
+    await db.refresh(tenant)
+    return tenant
+
+
+@router.patch("/tenants/{tenant_id}", response_model=TenantResponse)
+async def update_tenant(
+    tenant_id: uuid.UUID,
+    body: TenantUpdate,
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await db.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="고객사를 찾을 수 없습니다")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(tenant, field, value)
     await db.commit()
     await db.refresh(tenant)
     return tenant

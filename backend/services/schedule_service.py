@@ -6,9 +6,16 @@ from sqlalchemy import select, update
 from database import AsyncSessionLocal
 from models.invoice import Invoice
 from models.tenant import Tenant
-from services import notification_service
+from services import billing_service, notification_service
 
 scheduler = AsyncIOScheduler()
+
+
+async def generate_monthly_invoices():
+    """매월 1일 실행: 직전 달 정액 인보이스 자동 발행."""
+    prev_month = (date.today().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    async with AsyncSessionLocal() as session:
+        await billing_service.generate_invoices_for_month(session, prev_month)
 
 
 async def check_overdue_invoices():
@@ -73,6 +80,7 @@ async def check_overdue_invoices():
 
 def start_scheduler():
     scheduler.add_job(check_overdue_invoices, "cron", hour=0, minute=0, id="overdue_check")
+    scheduler.add_job(generate_monthly_invoices, "cron", day=1, hour=1, minute=0, id="monthly_invoice")
     scheduler.start()
 
 

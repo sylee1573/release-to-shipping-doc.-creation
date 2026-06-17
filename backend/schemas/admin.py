@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -20,6 +20,14 @@ class TenantCreate(BaseModel):
     business_number: str | None = None
     contact_email: EmailStr
     contact_phone: str | None = None
+    monthly_fee: float | None = None  # 정액제 월 청구액
+
+
+class TenantUpdate(BaseModel):
+    business_number: str | None = None
+    contact_email: EmailStr | None = None
+    contact_phone: str | None = None
+    monthly_fee: float | None = None
 
 
 class TenantResponse(BaseModel):
@@ -31,18 +39,32 @@ class TenantResponse(BaseModel):
     is_active: bool
     suspended_at: datetime | None
     plan_type: str
+    monthly_fee: float | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
 class UsageReport(BaseModel):
+    invoice_id: uuid.UUID
     tenant_id: uuid.UUID
     tenant_name: str
     billing_month: str
     unit_count: int
     amount: float | None
     status: str
+    due_date: date
+    paid_at: datetime | None
+
+
+class InvoiceGenerate(BaseModel):
+    billing_month: str = Field(pattern=r"^\d{4}-\d{2}$")  # 'YYYY-MM'
+
+
+class InvoiceGenerateResult(BaseModel):
+    billing_month: str
+    created: int   # 신규 발행 건수
+    skipped: int   # 이미 발행돼 건너뛴 건수
 
 
 class TemplateCreate(BaseModel):

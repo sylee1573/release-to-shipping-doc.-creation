@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DECIMAL, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +19,7 @@ class Tenant(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     plan_type: Mapped[str] = mapped_column(String(50), default="per_unit")
+    monthly_fee: Mapped[float | None] = mapped_column(DECIMAL(12, 2))  # 정액제 월 청구액
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     users: Mapped[list["User"]] = relationship("User", back_populates="tenant", lazy="noload")

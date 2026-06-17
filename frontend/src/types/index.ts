@@ -87,12 +87,15 @@ export interface User {
 }
 
 export interface UsageReport {
+  invoice_id: string
   tenant_id: string
   tenant_name: string
   billing_month: string
   unit_count: number
   amount: number | null
   status: string
+  due_date: string
+  paid_at: string | null
 }
 
 export interface Tenant {
@@ -104,6 +107,7 @@ export interface Tenant {
   is_active: boolean
   suspended_at: string | null
   plan_type: string
+  monthly_fee: number | null
   created_at: string
 }
 
