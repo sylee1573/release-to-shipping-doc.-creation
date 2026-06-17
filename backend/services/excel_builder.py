@@ -97,11 +97,11 @@ def _apply_total_style(ws, row: int, n_cols: int):
     med  = Side(style="medium")
     white = PatternFill("solid", fgColor="FFFFFF")
 
-    for c in range(1, n_cols + 1):
+    for c in range(1, max(n_cols, 20) + 1):
         cell = ws.cell(row=row, column=c)
         cell.fill   = white
         cell.border = Border(left=no, right=no, top=no, bottom=no)
-        cell.font   = Font(name="Arial", size=11, bold=True)
+        cell.font   = Font(name="Arial", size=11, bold=False)
         if c in (8, 9, 10, 11, 12, 13):
             cell.alignment = Alignment(horizontal="right", vertical="center")
         elif c in (14, 15):
@@ -125,7 +125,7 @@ def _apply_clean_data_rows(ws, start_row: int, count: int, n_cols: int):
             cell = ws.cell(row=row, column=col)
             cell.fill   = white
             cell.border = no_border
-            cell.font   = Font(name="Arial", size=11, bold=True)
+            cell.font   = Font(name="Arial", size=11, bold=False)
 
 def _ran_digits(value) -> int | str:
     """RAN# 값에서 숫자만 추출 (예: 'RAN-001' → 1)."""
