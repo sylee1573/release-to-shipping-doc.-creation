@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { productionApi } from '../api/production'
 import { shipmentApi } from '../api/shipment'
 import { useAuthStore } from '../store/authStore'
-import type { ProductionRequest } from '../types'
+import type { ProductionRequest, WeeklySlot } from '../types'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '초안', confirmed: '확정', in_production: '생산중', done: '완료',
@@ -57,8 +57,99 @@ function prDateLabel(isoString: string | null | undefined): string {
   return isoString.slice(0, 10)   // 'YYYY-MM-DD'
 }
 
+// ISO datetime → 'M/DD HH:mm' (로컬 시각). 생성/수정 시각 표시용.
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const mm = d.getMonth() + 1
+  const dd = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${mm}/${dd} ${hh}:${mi}`
+}
+
+// created_at과 updated_at이 60초 넘게 차이나면 갱신(개정)된 것으로 본다.
+function isRevised(created: string, updated: string | null | undefined): boolean {
+  if (!updated) return false
+  return new Date(updated).getTime() - new Date(created).getTime() > 60_000
+}
+
+// 두 YYYY-MM-DD 날짜 차이(later - earlier)를 일 단위로 반환 (UTC 기준).
+function daysBetween(later: string, earlier: string): number {
+  const a = new Date(later + 'T12:00:00Z').getTime()
+  const b = new Date(earlier + 'T12:00:00Z').getTime()
+  return Math.round((a - b) / 86_400_000)
+}
+
+// YYYY-MM-DD → 'M/DD' (UTC 기준)
+function shortDate(iso: string): string {
+  const d = new Date(iso + 'T12:00:00Z')
+  return `${d.getUTCMonth() + 1}/${String(d.getUTCDate()).padStart(2, '0')}`
+}
+
+// 역산 체인의 날짜 칩
+function Chip({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <span className={'inline-flex flex-col items-center px-1.5 py-0.5 rounded ' +
+      (highlight ? 'bg-indigo-100 text-indigo-700' : 'bg-white border border-gray-200 text-gray-700')}>
+      <span className="text-[8px] text-gray-400 leading-none">{label}</span>
+      <span className="text-[11px] font-semibold leading-tight">{value}</span>
+    </span>
+  )
+}
+
+// 역산 단계(화살표 + 설명)
+function Step({ text }: { text: string }) {
+  return (
+    <span className="inline-flex flex-col items-center mx-0.5 text-[8px] text-gray-400 leading-none">
+      <span>{text}</span>
+      <span className="text-gray-300 text-[11px]">▶</span>
+    </span>
+  )
+}
+
+// 슬롯 1건의 납기 역산 체인 (납품일 → 선적일 → 생산완료 → 선적주 배정)
+function BackCalcSlot({ slot }: { slot: WeeklySlot }) {
+  const seaTransit = daysBetween(slot.delivery_date, slot.sailing_date)   // 납품일 - 선적일
+  const prep       = daysBetween(slot.sailing_date, slot.production_end)  // 선적일 - 생산완료일
+  return (
+    <div className="flex flex-wrap items-center gap-0.5 text-[10px]">
+      <span className="font-semibold text-indigo-600 mr-1 whitespace-nowrap">선적주 {slot.slot}</span>
+      <Chip label="고객 납품일" value={shortDate(slot.delivery_date)} />
+      <Step text={`해상운송 ${Math.abs(seaTransit)}일 ${seaTransit >= 0 ? '역산' : '가산'}`} />
+      <Chip label="선적일" value={shortDate(slot.sailing_date)} highlight />
+      <Step text={`출하준비 ${Math.abs(prep)}일 ${prep >= 0 ? '역산' : '가산'}`} />
+      <Chip label="생산완료" value={shortDate(slot.production_end)} />
+      <span className="text-gray-300 mx-1">⇒</span>
+      <span className="text-gray-600 whitespace-nowrap">
+        선적일이 <b className="text-gray-800">{formatWeekHeader(slot.sailing_week_monday)}</b> 주 → 선적주 {slot.slot} 배정
+      </span>
+    </div>
+  )
+}
+
+// weekly_schedule이 없는 단건 PR의 역산 체인 (생산시작 → 생산완료 → 선적일)
+function BackCalcSingle({ pr }: { pr: ProductionRequest }) {
+  if (!pr.production_start_date || !pr.production_end_date || !pr.sailing_date) {
+    return <p className="text-[10px] text-gray-400">역산 내역을 표시할 날짜 정보가 없습니다.</p>
+  }
+  const lead = daysBetween(pr.production_end_date, pr.production_start_date)
+  const prep = daysBetween(pr.sailing_date, pr.production_end_date)
+  return (
+    <div className="flex flex-wrap items-center gap-0.5 text-[10px]">
+      <Chip label="생산시작" value={shortDate(pr.production_start_date)} />
+      <Step text={`리드타임 ${Math.abs(lead)}일`} />
+      <Chip label="생산완료" value={shortDate(pr.production_end_date)} />
+      <Step text={`출하준비 ${Math.abs(prep)}일 ${prep >= 0 ? '가산' : '역산'}`} />
+      <Chip label="선적일" value={shortDate(pr.sailing_date)} highlight />
+    </div>
+  )
+}
+
 export default function ProductionList() {
   const [editing, setEditing]         = useState<ProductionRequest | null>(null)
+  const [expandedId, setExpandedId]   = useState<string | null>(null)
   const [statusFilter]                = useState('')
   const [checkedIds, setCheckedIds]   = useState<Set<string>>(new Set())
   const [showGenModal, setShowGenModal] = useState(false)
@@ -288,8 +379,21 @@ export default function ProductionList() {
                       <td className="px-3 py-2 font-mono text-[10px] text-gray-900 font-medium">
                         {pr.part_number || '—'}
                       </td>
-                      <td className="px-3 py-2 font-mono text-[10px] text-gray-500">
-                        {pr.request_number || '—'}
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => setExpandedId(expandedId === pr.id ? null : pr.id)}
+                          className="font-mono text-[10px] text-indigo-600 hover:underline flex items-center gap-0.5"
+                          title="납기 역산 내역 보기"
+                        >
+                          <span className="text-gray-400">{expandedId === pr.id ? '▾' : '▸'}</span>
+                          {pr.request_number || '—'}
+                        </button>
+                        <div className="text-[9px] text-gray-400 mt-0.5 leading-tight">
+                          생성 {formatDateTime(pr.created_at)}
+                          {isRevised(pr.created_at, pr.updated_at) && (
+                            <span className="block text-amber-600">개정 {formatDateTime(pr.updated_at)}</span>
+                          )}
+                        </div>
                       </td>
                       {fourMondays.map((mon) => (
                         <td key={mon} className="px-2 py-2 text-center bg-indigo-50/40">
@@ -341,6 +445,25 @@ export default function ProductionList() {
                       </td>
                     </tr>
                   )
+
+                  // 역산 내역 펼침 행
+                  if (expandedId === pr.id) {
+                    const slots = [...(pr.weekly_schedule ?? [])].sort((a, b) => a.slot - b.slot)
+                    rows.push(
+                      <tr key={`detail-${pr.id}`} className="bg-indigo-50/30">
+                        <td colSpan={11} className="px-6 py-3">
+                          <p className="text-[11px] font-semibold text-gray-700 mb-2">납기 역산 내역</p>
+                          {slots.length === 0 ? (
+                            <BackCalcSingle pr={pr} />
+                          ) : (
+                            <div className="space-y-2">
+                              {slots.map((s) => <BackCalcSlot key={s.week_start} slot={s} />)}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  }
                   return rows
                 }, [])}
               </tbody>
