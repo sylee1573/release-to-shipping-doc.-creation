@@ -30,6 +30,7 @@ async def _run_migrations():
         "005_invoice_warning3.sql",
         "006_shipment_sailing_week.sql",
         "007_customer_profile_boxes_per_pallet.sql",
+        "008_tenant_monthly_fee.sql",
     ]
 
     for fname in files:
@@ -80,7 +81,7 @@ _frontend_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.st
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if _is_dev else _frontend_origins,
-    allow_origin_regex=None if _is_dev else r"https://release-to-shipping-doc-creation[a-z0-9-]*\.vercel\.app",
+    allow_origin_regex=None if _is_dev else r"https://(release-to-shipping-doc-creation[a-z0-9-]*|gyeoldoc)\.vercel\.app",
     allow_credentials=not _is_dev,
     allow_methods=["*"],
     allow_headers=["*"],
